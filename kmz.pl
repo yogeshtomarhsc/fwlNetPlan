@@ -152,7 +152,7 @@ foreach my $stylehash (@$stylegroup) {
 }
 print "Found $nc styles\n" ;
 my $oldnc = $nc ;
-for (; $nc<$numclusters; $nc++){
+for ($nc = 0; $nc<$numclusters; $nc++){
 	print "Adding new style $nc\n" ;
 	my %newstyle ;
 	my %newst = makeNewStyle($nc) ;
@@ -184,24 +184,15 @@ foreach my $newc (sort keys %{$clusters}) {
 		splice @clusterpoints,@clusterpoints,0,@points ;
 	}
 	my $clusterpoly = chainHull_2D @clusterpoints ;
+	printf "Convex operation returns polygon with %d points, closed=%d\n",$clusterpoly->nrPoints(),$clusterpoly->isClosed() ;
+	my %options ;
+	$options{'remove_spike'} = 'true' ;
+	$clusterpoly->beautify(%options) ;
 	@clusterpoints = $clusterpoly->points() ;
-	splice @clusterpoints,$#clusterpoints,1;
-	#	for (my $i; $i < @clusterpoints; $i++ ) {
-	#	my @pt = @{$clusterpoints[$i]} ;
-	#	printf "x=%.4g y=%.4g, ", $pt[0], $pt[1] ; 
-	#	if (($i > 0) && (($i%10) ==0)) { print "\n" ;  }
-	#	elsif ($i ==$#{$clusterpoints[$i]}) { print "\n"; }
-	#}
-	#exit(1) ;
-
 	
 	my $newcluster = makeNewCluster($clusterpoly,\%pmlistentry) ;
 	$newclusters[$newcn - $oldnc] = $newcluster ;
 	$newcn++ ; printf("newcn -> $newcn\n") ;
-}
-for (my $nc = 0; $nc < $newcn - $oldnc; $nc++) {
-	printf "Cluster %d\n", $nc ;
-	print Dumper $newclusters[$nc] ;
 }
 #Assign styles to placemarks
 #foreach my $pref (@placemarkhashes) {
@@ -212,7 +203,7 @@ for (my $nc = 0; $nc < $newcn - $oldnc; $nc++) {
 #	$$pref{'styleUrl'} = '#PolyStyle' . sprintf("%.3d",$styleid%$nc) ;
 #		print "Changing style to $$pref{'styleUrl'}\n" ;
 	
-splice @{$featureref[0]},@{$featureref[0]},0,$newclusters[0],$newclusters[1],$newclusters[2],$newclusters[3] ;
+splice @{$featureref[0]},@{$featureref[0]},0,@newclusters ;
 
 my $opkml = Geo::KML->new(version => '2.2.0') ;
 if ($opt_k =~ /.*[.]kmz$/) {
@@ -247,7 +238,7 @@ sub aoiClusters{
 		$kmax = 12 ; $kmin = 6 ;
 	}
 
-	$kmax = 4; $kmin=4 ;
+	$kmax = $kmin = 8 ;
 	open (FTMP, ">",$datafile) || die "Can't open $datafile for creating cluster list\n" ;
 	for (my $aoi=0 ; $aoi < @$aoisref; $aoi++) {
 		printf FTMP "%s,%.6g,%.6g\n", ${@$aoisref[$aoi]}{'name'}, @$cxref[$aoi], @$cyref[$aoi] ;
@@ -314,10 +305,13 @@ sub arrayToPolygon{
 
 sub polygonToArray {
 	my $plist = shift ;
+	my @pts = @$plist ;
 	my @opstr ;
-	foreach my $i (@$plist) {
+	foreach my $i (@pts) {
 		my $pstr ;
-		$pstr = sprintf "%.10g,%.10g,0", $$i[0], $$i[1] ;
+		my @xy = @$i ;
+		last if (@xy == 0) ;
+		$pstr = sprintf "%.10g,%.10g,0", $xy[0], $xy[1] ;
 		push @opstr,$pstr ;
 	}
 	@opstr ;
@@ -384,8 +378,6 @@ sub makeNewCluster{
 
 	$placemark{'MultiGeometry'}{'AbstractGeometryGroup'} = \@polygons ;
 	$newcluster{'Placemark'} = \%placemark ;
-	#print "Made new cluster\n" ;
-	#print Dumper \%newcluster;
 	return \%newcluster ;
 }
 
