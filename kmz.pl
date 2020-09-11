@@ -9,26 +9,23 @@ use Data::Dumper ;
 use XML::LibXML ;
 use Math::Polygon ;
 
+$Data::Dumper::Indent = 1;
 my $milesperlat = 69 ;
 my $milesperlong = 54.6 ; 
 
 our $opt_f = "" ;
 our $df = "kml.dat" ;
 my $odf = "kmlmod.dat" ;
-our $opt_c = 0 ;
-our $opt_w = 0 ;
 our $opt_k = "" ;
-getopts('f:wck:') ;
-my $keyv ;
+getopts('f:k:') ;
 my @colors = (0xffff0000, 0xff00ff00, 0xff0000ff, 0xffaa3333, 0xff33aa22,0xff00cccc, 0xff22cc22, 0xff22aacc) ;
+my %pmlistentry ;
 
 if ($opt_f eq "") {
-	die "Usage: kmz.pl -f <input file> [-o decompiled file] [-w to wait] [-c to cluster] [-k <output kml file>]\n" ;
+	die "Usage: kmz.pl -f <input file> [-c to cluster] [-k <output kml file>]\n" ;
 }
 else {
 	open(F1,$opt_f) || die "Can't open file $opt_f\n" ; 
-	open(F2,">",$df) || die "Can't open file $df for writing\n" ; 
-	open(F3,">",$odf) || die "Can't open file $odf for writing\n" ; 
 	if ($opt_k eq "") {
 		($opt_f =~ m@.*([A-Z]{2}).kmz@) && 
 			do {
@@ -65,7 +62,6 @@ close(F2) ;
 #    say $title->to_literal();
 #}
 #
-$Data::Dumper::Indent = 1;
 #
 my $EPS = 0.001 ;
 my $totalArea = 0 ;
@@ -76,6 +72,8 @@ my $cxavg = 0 ;
 my $cyavg = 0 ;
 my @placemarkhashes;
 my $placemarks = 0;
+my @featureref ;
+my $featurecnt = 0 ;
 foreach my $fg (@$featuregroup) {
 	for my $fkey (keys %$fg) {
 		print "Key $fkey: Value $$fg{$fkey}\n" ;
@@ -84,19 +82,23 @@ foreach my $fg (@$featuregroup) {
 		for my $fderkey (keys %$fder) {
 			print "Folder Key $fderkey: Value $$fder{$fderkey}\n" ;
 			next unless ($fderkey eq 'AbstractFeatureGroup') ;
-			my $features  = $$fder{'AbstractFeatureGroup'} ;
-			foreach my $fcount (@$features)
+			$featureref[$featurecnt]  = $$fder{'AbstractFeatureGroup'} ;
+			foreach my $fcount (@{$featureref[$featurecnt]})
 			{
 				for my $fcntkey (keys %$fcount) {
-					print "Feature Key $fcntkey: Value $$fcount{$fcntkey}\n" ;
-					if ($fcntkey eq 'Placemark') { push @placemarkhashes,$$fcount{$fcntkey} ; $placemarks++; }
+					#					print "Feature Key $fcntkey: Value $$fcount{$fcntkey}\n" ;
+					if ($fcntkey eq 'Placemark') { 
+						%pmlistentry = %$fcount ; 
+						push @placemarkhashes,$$fcount{$fcntkey} ; $placemarks++; 
+					}
 				}
 			}
+			$featurecnt++ ;
 		}
 		
 	}
 }
-print "$placemarks Placemarks found\n" ;
+print "$placemarks Placemarks found, $featurecnt Features found\n" ;
 
 use Math::Polygon::Convex qw/chainHull_2D/ ;
 
@@ -126,21 +128,15 @@ foreach my $pref (@placemarkhashes) {
 	push @aois,\%aoihash ;
 	$totalArea += $parea ;
 	$aoiCtr++ ;
-	if ($opt_w == 0)  { next ; }
-	last unless (($keyv = waitKey()) != 0) ;
-	if ($keyv == 2) {$opt_w = 0 ; }
 }
 print "$aoiCtr AOIs recorded, total area of $totalArea: " ;
 
 
 my ($clusters,$clustercenters, $numclusters) ;
-if ($opt_c) {
+{
 	print "Trying K-means clustering\n" ;
-	($clusters,$clustercenters,$numclusters) = aoiClusters(\@aois,\@cx,\@cy) ;
+	($clusters,$clustercenters,$numclusters) = aoiClusters(\@aois,\@cx,\@cy,$totalArea) ;
 	print "$numclusters clusters returned\n" ;
-}
-else {
-	$numclusters = @colors ;
 }
 my $nc = 0;
 my $clr ;
@@ -155,6 +151,7 @@ foreach my $stylehash (@$stylegroup) {
 	$nc++;
 }
 print "Found $nc styles\n" ;
+my $oldnc = $nc ;
 for (; $nc<$numclusters; $nc++){
 	print "Adding new style $nc\n" ;
 	my %newstyle ;
@@ -162,60 +159,106 @@ for (; $nc<$numclusters; $nc++){
 	$newstyle{'Style'} = \%newst ;
 	push @$stylegroup, \%newstyle ;
 }
-#Assign styles to placemarks
-foreach my $pref (@placemarkhashes) {
-	my $styleid = findInClusters($$pref{'name'},$clusters) ;
-	next unless ($styleid != -1) ;
-	$$pref{'styleUrl'} = '#PolyStyle' . sprintf("%.2d",$styleid%$nc) ;
-	#	print "Changing style to $$pref{'styleUrl'}\n" ;
+
+my $newcn = $oldnc ;
+#foreach my $cluster_id (sort keys %{$clusters}) {
+#		$nc++ ;
+	#	print "\n$cluster_id   =>   @{$clusters->{$cluster_id}}\n";
+
+my @newclusters ;
+foreach my $newc (sort keys %{$clusters}) {
+	my @clusterpoints ;
+	my @clist = @{$clusters->{$newc}} ;
+	print "newc = $newc newcn = $newcn\n" ;
+	for my $pk (@clist){
+		my $pgon = 0 ;
+		foreach my $pref (@aois) {
+			my %id = %$pref ;
+			if ($$pref{'name'} eq $pk) {
+				$pgon = $$pref{'polygon'} ;
+				last ;
+			}
+		}
+		#		if ($pgon == 0) {die "Can't find $pk in list of placemarks\n" ;}
+		my @points = $$pgon->points() ;
+		splice @clusterpoints,@clusterpoints,0,@points ;
+	}
+	my $clusterpoly = chainHull_2D @clusterpoints ;
+	@clusterpoints = $clusterpoly->points() ;
+	splice @clusterpoints,$#clusterpoints,1;
+	#	for (my $i; $i < @clusterpoints; $i++ ) {
+	#	my @pt = @{$clusterpoints[$i]} ;
+	#	printf "x=%.4g y=%.4g, ", $pt[0], $pt[1] ; 
+	#	if (($i > 0) && (($i%10) ==0)) { print "\n" ;  }
+	#	elsif ($i ==$#{$clusterpoints[$i]}) { print "\n"; }
+	#}
+	#exit(1) ;
+
+	
+	my $newcluster = makeNewCluster($clusterpoly,\%pmlistentry) ;
+	$newclusters[$newcn - $oldnc] = $newcluster ;
+	$newcn++ ; printf("newcn -> $newcn\n") ;
 }
+for (my $nc = 0; $nc < $newcn - $oldnc; $nc++) {
+	printf "Cluster %d\n", $nc ;
+	print Dumper $newclusters[$nc] ;
+}
+#Assign styles to placemarks
+#foreach my $pref (@placemarkhashes) {
+#	my $styleid = findInClusters($$pref{'name'},$clusters) ;
+#	next unless ($styleid != -1) ;
+#
+#}
+#	$$pref{'styleUrl'} = '#PolyStyle' . sprintf("%.3d",$styleid%$nc) ;
+#		print "Changing style to $$pref{'styleUrl'}\n" ;
+	
+splice @{$featureref[0]},@{$featureref[0]},0,$newclusters[0],$newclusters[1],$newclusters[2],$newclusters[3] ;
 
-print "Writing to kmlmod.dat\n" ;
-my $strdata = Dumper($data);
-print F3 "$strdata\n" ;
-close(F3) ;
-
-print "Writing to kmz file $opt_k\n" ;
 my $opkml = Geo::KML->new(version => '2.2.0') ;
-$opkml->writeKML($data,$opt_k) ;
+if ($opt_k =~ /.*[.]kmz$/) {
+	print "Writing to kmz file $opt_k\n" ;
+	$opkml->writeKML($data,$opt_k,1) ;
+}
+elsif ($opt_k =~ /.*[.]kml$/) {
+	print "Writing to kml file $opt_k\n" ;
+	$opkml->writeKML($data,$opt_k) ;
+}
+else {
+	print "Don't understand file type $opt_k\n" ;
+}
 exit(1) ;
 
-sub makeNewStyle{
-	my %newst ;
-	my $num = shift ;
-	my $styleid = "PolyStyle" . sprintf("%.2d",$num) ;
-	my ($red,$blue,$green) ;
-	$red = int(rand(255)) ;
-	$blue = int(rand(255)) ;
-	$green = int(rand(255)) ;
-	my $clr = (0xff<<24) | (($blue) << 16) | (($green) << 8) | ($red)  ;
-	$newst{'id'} = $styleid ;
-	$newst{'PolyStyle'} = {'color' => $clr, 'outline' => 1} ;
-	$newst{'LabelStyle'} = { 'color' => $clr, 'scale' => 0.0000 } ;
-	$newst{'LineStyle'} = { 'color' => $clr, 'width' => 0.4000 } ;
-	%newst ;
-}
 
 use Algorithm::KMeans ;
 sub aoiClusters{
 	my $aoisref = shift ;
 	my $cxref = shift ;
 	my $cyref = shift ;
+	my $tA = shift ;
 	my $nc = 0;
 	my $datafile = "aoi" . $$ . ".csv" ;
-	my $kmax = int(sqrt(@$aoisref)) ;
-	if ($kmax > 12) { $kmax = 12 ; }
+	my $kmin = int($tA/2000) ;
+	my $kmax = int(sqrt(@$aoisref/2)) ;
+	print "Initial estimate kmax=$kmax kmin=$kmin\n" ; 
+	while ($kmax <= $kmin && $kmin > 4) {
+		$kmin -= $kmin << 2;
+	}
+	if ($kmax <= $kmin) {
+		$kmax = 12 ; $kmin = 6 ;
+	}
+
+	$kmax = 4; $kmin=4 ;
 	open (FTMP, ">",$datafile) || die "Can't open $datafile for creating cluster list\n" ;
 	for (my $aoi=0 ; $aoi < @$aoisref; $aoi++) {
 		printf FTMP "%s,%.6g,%.6g\n", ${@$aoisref[$aoi]}{'name'}, @$cxref[$aoi], @$cyref[$aoi] ;
 	}
 	close (FTMP) ;
-	print "Trying K-means with $kmax clusters\n" ;
+	print "Trying K-means with $kmax,$kmin clusters\n" ;
 	my $clusterer = Algorithm::KMeans->new(
 		datafile        => $datafile,
                 mask            => "N11",
                 K               => 0,
-		Kmin		=> 6,
+		Kmin		=> $kmin,
 		Kmax		=> $kmax,
                 cluster_seeding => 'random',   
                 use_mahalanobis_metric => 0,  
@@ -225,8 +268,9 @@ sub aoiClusters{
 	my ($clusters,$clusterCenters) = $clusterer->kmeans() ;
 	foreach my $cluster_id (sort keys %{$clusters}) {
 		$nc++ ;
-    		print "\n$cluster_id   =>   @{$clusters->{$cluster_id}}\n";
+	#	print "\n$cluster_id   =>   @{$clusters->{$cluster_id}}\n";
 	}
+	unlink($datafile) ;
 	printf "Generated %d clusters\n",$nc;
 	return ($clusters,$clusterCenters,$nc) ;
 	
@@ -268,20 +312,92 @@ sub arrayToPolygon{
 	@plist ;
 }
 
-
-sub waitKey
-{
-	my $keyinput = <> ;
-	chomp($keyinput) ;
-	if ($keyinput eq "") { return 1 ; }
-	else {
-		print "$keyinput\n" ;
-		if ($keyinput eq "q") {
-			return 0 ;
-		}
-		elsif ($keyinput eq "c") {
-			return 2 ; 
-		}
-		else { return 1 ; }
+sub polygonToArray {
+	my $plist = shift ;
+	my @opstr ;
+	foreach my $i (@$plist) {
+		my $pstr ;
+		$pstr = sprintf "%.10g,%.10g,0", $$i[0], $$i[1] ;
+		push @opstr,$pstr ;
 	}
+	@opstr ;
+}
+
+
+sub makeNewDescription{
+	my $details = shift ;
+	if ($details eq "") { $details = sprintf("No Details provided") ; }
+my $descstring = sprintf <<EODESC
+'<html xmlns:fo="http://www.w3.org/1999/XSL/Format" xmlns:msxsl="urn:schemas-microsoft-com:xslt">
+<head>
+<META http-equiv="Content-Type" content="text/html">
+<meta http-equiv="content-type" content="text/html; charset=UTF-8">
+</head>
+
+<body style="margin:0px 0px 0px 0px;overflow:auto;background:#FFFFFF;">
+<table style="font-family:Arial,Verdana,Times;font-size:12px;text-align:left;width:100%;border-collapse:collapse;padding:3px 3px 3px 3px">
+<tr style="text-align:center;font-weight:bold;background:#9CBCE2">
+<td>$details</td>
+
+</tr>
+</body>
+
+</html>
+EODESC
+;
+return $descstring ;
+}
+
+sub makeNewStyle{
+	my %newst ;
+	my $num = shift ;
+	my $styleid = "ClusterStyle" . sprintf("%.3d",$num) ;
+	my ($red,$blue,$green) ;
+	$red = int(rand(255)) ;
+	$blue = int(rand(255)) ;
+	$green = int(rand(255)) ;
+	my $clr = (0xff<<24) | (($blue) << 16) | (($green) << 8) | ($red)  ;
+	$newst{'id'} = $styleid ;
+	$newst{'PolyStyle'} = {'color' => $clr, 'outline' => 1, 'fill' => 0} ;
+	$newst{'LabelStyle'} = { 'color' => $clr, 'scale' => 0.0000 } ;
+	$newst{'LineStyle'} = { 'color' => $clr, 'width' => 3.0000 } ;
+	%newst ;
+}
+sub makeNewCluster{
+	my $clusterpoly = shift ;
+	my $template = shift ;
+	my %newcluster ;
+	my $polygoncoords  = makeNewPolygon($clusterpoly) ;
+	my %placemark ;
+	my %polygon ;
+	my @polygons ;
+	$placemark{'name'} = sprintf "Cluster_%d",$newcn ;
+	$placemark{'styleUrl'} = sprintf ("ClusterStyle%.3d",$newcn) ;
+	$placemark{'description'} = "Empty string"; 
+	$placemark{'id'} = sprintf("ClusterID_%d",$newcn)  ;
+
+	$polygon{'outerBoundaryIs'}{'LinearRing'}{'coordinates'} = $polygoncoords ;
+	$polygon{'extrude'} = 0 ;
+	my %geom;
+	$geom{'Polygon'} = \%polygon ;
+	push @polygons,\%geom ;
+
+	$placemark{'MultiGeometry'}{'AbstractGeometryGroup'} = \@polygons ;
+	$newcluster{'Placemark'} = \%placemark ;
+	#print "Made new cluster\n" ;
+	#print Dumper \%newcluster;
+	return \%newcluster ;
+}
+
+sub makeNewPolygon{
+	my $polygon = shift ;
+	my @absgrouplists ; 
+	my $plist = $polygon->points() ;
+	my @pcoords = polygonToArray($plist) ;
+	#	my %phashref ;
+	#$phashref{'outerBoundaryIs'}{'LinearRing'}{'coordinates'} = \@pcoords ;
+	#$phashref{'altitudeMode'} = 'clampToGround' ;
+	#$phashref{'extrude'} = 0;
+	#%phashref ;
+	return \@pcoords ;
 }
