@@ -8,6 +8,8 @@ use Geo::KML ;
 use Data::Dumper ;
 use XML::LibXML ;
 use Math::Polygon ;
+use KMZ ;
+use cvxPolygon;
 
 $Data::Dumper::Indent = 1;
 my $milesperlat = 69 ;
@@ -105,15 +107,20 @@ use Math::Polygon::Convex qw/chainHull_2D/ ;
 foreach my $pref (@placemarkhashes) {
 	my $geometries = $$pref{'MultiGeometry'}{'AbstractGeometryGroup'} ;
 	my @pcoords ;
+	my @polygonlist ;
+	my $nxtp=0;
 	foreach my $geomkey (@$geometries) {
 		my $coordinates = $$geomkey{'Polygon'}{'outerBoundaryIs'}{'LinearRing'}{'coordinates'} ;
 		my @plist = arrayToPolygon($coordinates) ;
 		splice @pcoords,@pcoords,0,@plist ;
+		$polygonlist[$nxtp++] = Math::Polygon->new(@plist) ;
 
 		undef $$geomkey{'Polygon'}{'altitudeMode'} ;
 	#{ print "coordinate string: $$geomkey{'Polygon'}{'outerBoundaryIs'}{'LinearRing'}{'coordinates'}\n" ; }
 	}
-	my $nxtaoi = chainHull_2D @pcoords ;
+		my $nxtaoi = chainHull_2D @pcoords ;
+	#	my $nxtaoi = Math::Polygon->new(cvxPolygon::combinePolygonsConvex(\@polygonlist)) ;
+	$nxtaoi->beautify() ;
 	my $pcnt = $nxtaoi->nrPoints ;
 	my $parea = $nxtaoi->area()*$milesperlat*$milesperlong ;
 	printf "Converted placemark to convex hull of %d points, area = %.4g (closed=%d) ", $pcnt,$parea,$nxtaoi->isClosed() ;
@@ -169,6 +176,7 @@ my @newclusters ;
 foreach my $newc (sort keys %{$clusters}) {
 	my @clusterpoints ;
 	my @clist = @{$clusters->{$newc}} ;
+	my @plist ;
 	print "newc = $newc newcn = $newcn\n" ;
 	for my $pk (@clist){
 		my $pgon = 0 ;
@@ -182,15 +190,17 @@ foreach my $newc (sort keys %{$clusters}) {
 		#		if ($pgon == 0) {die "Can't find $pk in list of placemarks\n" ;}
 		my @points = $$pgon->points() ;
 		splice @clusterpoints,@clusterpoints,0,@points ;
+		push @plist,$$pgon ;
 	}
-	my $clusterpoly = chainHull_2D @clusterpoints ;
+	#	my $clusterpoly = chainHull_2D @clusterpoints ;
+	my $clusterpoly = Math::Polygon->new(cvxPolygon::combinePolygonsConvex(\@plist)) ;
 	printf "Convex operation returns polygon with %d points, closed=%d\n",$clusterpoly->nrPoints(),$clusterpoly->isClosed() ;
 	my %options ;
-	$options{'remove_spike'} = 'true' ;
+	$options{'remove_spike'} = 1 ;
 	$clusterpoly->beautify(%options) ;
 	@clusterpoints = $clusterpoly->points() ;
 	
-	my $newcluster = makeNewCluster($clusterpoly,\%pmlistentry) ;
+	my $newcluster = makeNewCluster($clusterpoly,\%pmlistentry,$newcn) ;
 	$newclusters[$newcn - $oldnc] = $newcluster ;
 	$newcn++ ; printf("newcn -> $newcn\n") ;
 }
@@ -238,7 +248,7 @@ sub aoiClusters{
 		$kmax = 12 ; $kmin = 6 ;
 	}
 
-	$kmax = $kmin = 8 ;
+		$kmax = $kmin = int(sqrt(@$aoisref/2)) ;
 	open (FTMP, ">",$datafile) || die "Can't open $datafile for creating cluster list\n" ;
 	for (my $aoi=0 ; $aoi < @$aoisref; $aoi++) {
 		printf FTMP "%s,%.6g,%.6g\n", ${@$aoisref[$aoi]}{'name'}, @$cxref[$aoi], @$cyref[$aoi] ;
@@ -303,20 +313,6 @@ sub arrayToPolygon{
 	@plist ;
 }
 
-sub polygonToArray {
-	my $plist = shift ;
-	my @pts = @$plist ;
-	my @opstr ;
-	foreach my $i (@pts) {
-		my $pstr ;
-		my @xy = @$i ;
-		last if (@xy == 0) ;
-		$pstr = sprintf "%.10g,%.10g,0", $xy[0], $xy[1] ;
-		push @opstr,$pstr ;
-	}
-	@opstr ;
-}
-
 
 sub makeNewDescription{
 	my $details = shift ;
@@ -342,54 +338,3 @@ EODESC
 return $descstring ;
 }
 
-sub makeNewStyle{
-	my %newst ;
-	my $num = shift ;
-	my $styleid = "ClusterStyle" . sprintf("%.3d",$num) ;
-	my ($red,$blue,$green) ;
-	$red = int(rand(255)) ;
-	$blue = int(rand(255)) ;
-	$green = int(rand(255)) ;
-	my $clr = (0xff<<24) | (($blue) << 16) | (($green) << 8) | ($red)  ;
-	$newst{'id'} = $styleid ;
-	$newst{'PolyStyle'} = {'color' => $clr, 'outline' => 1, 'fill' => 0} ;
-	$newst{'LabelStyle'} = { 'color' => $clr, 'scale' => 0.0000 } ;
-	$newst{'LineStyle'} = { 'color' => $clr, 'width' => 3.0000 } ;
-	%newst ;
-}
-sub makeNewCluster{
-	my $clusterpoly = shift ;
-	my $template = shift ;
-	my %newcluster ;
-	my $polygoncoords  = makeNewPolygon($clusterpoly) ;
-	my %placemark ;
-	my %polygon ;
-	my @polygons ;
-	$placemark{'name'} = sprintf "Cluster_%d",$newcn ;
-	$placemark{'styleUrl'} = sprintf ("ClusterStyle%.3d",$newcn) ;
-	$placemark{'description'} = "Empty string"; 
-	$placemark{'id'} = sprintf("ClusterID_%d",$newcn)  ;
-
-	$polygon{'outerBoundaryIs'}{'LinearRing'}{'coordinates'} = $polygoncoords ;
-	$polygon{'extrude'} = 0 ;
-	my %geom;
-	$geom{'Polygon'} = \%polygon ;
-	push @polygons,\%geom ;
-
-	$placemark{'MultiGeometry'}{'AbstractGeometryGroup'} = \@polygons ;
-	$newcluster{'Placemark'} = \%placemark ;
-	return \%newcluster ;
-}
-
-sub makeNewPolygon{
-	my $polygon = shift ;
-	my @absgrouplists ; 
-	my $plist = $polygon->points() ;
-	my @pcoords = polygonToArray($plist) ;
-	#	my %phashref ;
-	#$phashref{'outerBoundaryIs'}{'LinearRing'}{'coordinates'} = \@pcoords ;
-	#$phashref{'altitudeMode'} = 'clampToGround' ;
-	#$phashref{'extrude'} = 0;
-	#%phashref ;
-	return \@pcoords ;
-}
