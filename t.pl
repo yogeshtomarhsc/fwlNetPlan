@@ -9,9 +9,21 @@ my $milesperlat = 69 ;
 my $milesperlong = 54.6 ; 
 $Data::Dumper::Indent = 1;
 
-our ($opt_f,$opt_x) ;
-getopts('f:') ;
+srand($$) ;
+
+my %towerdata ;
+our ($opt_f,$opt_o) ;
+getopts('f:o:') ;
 my $filename = $opt_f || die "Need a filename\n";
+my $oh ;
+undef ($oh) ;
+if ($opt_o) {
+	open ($oh, ">", $opt_o) || die "Couldn't open $opt_o for writing\n" ;
+	print $oh <<OH
+County\tNW Lat,Long\tSE Lat,Long\tCells\tArea\tTerrain Classification
+OH
+;
+}
 my $dom = eval {
     XML::LibXML->load_xml(location => $filename);
 };
@@ -39,29 +51,47 @@ for (my $i = 0; $i < @foldersub; $i++) {
 	my $doc = $foldersub[$i] ;
 	my $folder = $doc->getChildrenByLocalName("Folder") || die "Can't find Document->Folder\n" ;
 	while (my $fdr  = $folder->pop) {
-		printf "fdr of type %s\n",ref($fdr) ;
-		findPolygonInFolder($fdr,\@polygons) ;
+		findPolygonInFolder("", $fdr,\@polygons) ;
 	}
 }
 
+for my $td (keys %towerdata) {
+	print $oh "$td\t$towerdata{$td}{'nw'}\t$towerdata{$td}{'se'}\t$towerdata{$td}{'ncells'}\t$towerdata{$td}{'area'}\tUnknown\n" ;
+}
+close ($oh) ;
+
 sub findPolygonInFolder {
+	my $cname = shift ;
 	my $folder = shift ;
 	my $plist = shift ;
 	my ($nf,$np) ;
 	my @subfolders = $folder->getChildrenByLocalName("Folder") ;
 	my @pmarks = $folder->getChildrenByLocalName("Placemark") ;
 	$nf = @subfolders; $np  = @pmarks ;
-	print "Found $nf subfolders $np placemarks\n" ;
+	print "Processing folder $cname\n" ;
+	my @names = $folder->getChildrenByTagName("name") ;
 	for my $pmark (@pmarks) {
 		my @pgon = $pmark->getChildrenByLocalName("Polygon") ;
-		for my $pgn (@pgon) { 
-			my $poly = xmlToPolygon($pgn) ;
-			printf "Found polygon in placemark\n" ; 
-			push @$plist, $poly,
+		my @styles = $pmark->getChildrenByLocalName("StyleUrl") ;
+		my $pname = "noname". rand(100) ;
+		if (@names && @pgon) {
+			my $np = $names[0]->textContent ;
+			$np =~ tr/\r\n// ;
+			printf "Name of placemark with polygon:%s\n",$np ;
+			for my $pgn (@pgon) { 
+				my $poly = xmlToPolygon($pgn,$np) ;
+				push @$plist, $poly,
+			}
 		}
 	}
+	if (@names && ($names[0]->textContent eq "Selected Cells")) {
+		my $towers = xmlToSelectedCells($cname,$folder) ;
+		print "$towers cell sites in $cname\n" ;
+		$towerdata{$cname}{'ncells'} = $towers ; 
+	}
 	for my $fdr (@subfolders) {
-		findPolygonInFolder($fdr,$plist) ;
+		if ($cname eq "") { my $temp = $names[0]->textContent ; $cname .= $temp ; }
+		findPolygonInFolder($cname,$fdr,$plist) ;
 	}
 }
 my $polygon = @polygons;
@@ -70,6 +100,7 @@ print "$polygon polygons identified\n" ;
 sub xmlToPolygon {
 	my @parray ; 
 	my $kid =shift ;
+	my $cname = shift ;
 	{ 
 		#	printf "%s, %s\n",ref($kid),$kid->nodeName;
 		my @polygonkids = $kid->getChildrenByLocalName("outerBoundaryIs") ;
@@ -79,23 +110,75 @@ sub xmlToPolygon {
 			for my $j (@clist) {
 				my @plist = $j->getChildrenByLocalName("coordinates") ;
 				for my $k (@plist) {
-					my @coords = split(/\s+/,$k->textContent) ;
+					my $tdata = $k->textContent ;
+					chomp($tdata) ;
+					my @coords = split(/\s+/,$tdata) ;
 					for my $crd (@coords) {
 						my (@xy,$z);
 						($xy[0],$xy[1],$z) = split(/,/,$crd); 
-						push @parray,\@xy ;
+						if (defined($xy[0]) && defined($xy[1])) {
+							push @parray,\@xy ;
+						}
 					}
 				}
 			}
 		}
 	}
+	my ($fst,$lst) ;
+	$fst = $parray[0] ;
+	$lst = $parray[$#parray] ;
+	if ($$fst[0] != $$lst[0] || $$fst[1] != $$lst[1]) {
+		print "Polygon is not closed\n" ;
+		my @newlst = @$fst ;
+		push @parray,\@newlst;
+	}
+
 	my $pgon = Math::Polygon->new(@parray) ;
-	my $points = @parray ;
-	printf "Polygon with %d points, %.4g area\n",$points, $pgon->area()*$milesperlat*$milesperlong ;
+	if ($pgon->isClosed != 1) { print "Polygon is still not closed\n" ; }
+	printf "Polygon in %s with %d points, %.4g area ", $cname, $pgon->nrPoints, $pgon->area()*$milesperlat*$milesperlong ;
+	my ($xmin,$ymin,$xmax,$ymax) = $pgon->bbox ;
+	print "\n$xmin,$ymin,$xmax,$ymax\n" ;
+	if (!defined($towerdata{$cname})) {
+	       my %tdata ;
+       		$tdata{'area'} = $pgon->area()*$milesperlat*$milesperlong;	       
+		$tdata{'nw'} = sprintf("%.10g,%.10g",$xmin,$ymax) ;
+		$tdata{'se'} = sprintf("%.10g,%.10g",$xmin,$ymax) ;
+		$towerdata{$cname} = \%tdata ;
+	}
+	else {
+		$towerdata{$cname}{'area'} = $pgon->area()*$milesperlat*$milesperlong;
+		$towerdata{$cname}{'nw'} = sprintf("%.10g,%.10g",$xmin,$ymax) ;
+		$towerdata{$cname}{'se'} = sprintf("%.10g,%.10g",$xmin,$ymax) ;
+	}
 	return $pgon ;
 }
 
-
+sub xmlToSelectedCells {
+	my $cname = shift ;
+	my $fdr = shift ;
+	my $twrs = 0 ;
+	my @cellLoc ;
+	my @names = $fdr->getChildrenByTagName("name") ;
+	my @pmarks = $fdr->getChildrenByTagName("Placemark") ;
+	if (@names)  {printf "name:%s\n", $cname . $names[0]->textContent ; }
+	for my $pmark (@pmarks) {
+		my @tsites = $pmark->getChildrenByTagName("Point") ;
+		my @coords = $tsites[0]->getChildrenByTagName("coordinates") ;
+		my @location = $coords[0]->textContent ;
+		push @cellLoc,\@location ;
+		$twrs++ ;
+	}
+	if (!defined($towerdata{$cname})) {
+		my %tdata ;
+		$tdata{'ncells'} = $twrs ;
+	#$tdata{'cellpositions'} = \@cellLoc ;
+		$towerdata{$cname} = \%tdata ;
+	}
+	else {
+		$towerdata{$cname}{'ncells'} = $twrs ;
+	}
+	return $twrs;
+}
 #print Dumper $kml->toString() ;
 #
 

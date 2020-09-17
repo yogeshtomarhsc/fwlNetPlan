@@ -108,27 +108,28 @@ foreach my $pref (@placemarkhashes) {
 	my $geometries = $$pref{'MultiGeometry'}{'AbstractGeometryGroup'} ;
 	my $description = $$pref{'description'} ;
 	my ($county,$new) = getCounty($description,\@counties) ;
-	if ($new == 0) {
+	#if ($new == 0) {
+	if (!defined %countydata{$county}) {
 		push @counties, $county;
 		my @listofAois ;
 		my @cx ;
 		my @cy ;
-		my @data ;
+		my %data ;
 		my $aoiCtr = 0;
-		$data[0] = \@listofAois ;
-		$data[1] = \@cx ;
-		$data[2] = \@cy ;
-		$data[3] = \$aoiCtr ;
-		$countydata{$county} = \@data ;
+		$data{'aois'} = \@listofAois ;
+		$data{'cx'}= \@cx ;
+		$data{'cy'} = \@cy ;
+		$data{'centroid'} = \$aoiCtr ;
+		$countydata{$county} = \%data ;
 	}
 	my @pcoords ;
 	my @polygonlist ;
 	my $nxtp=0;
 
-	my $listofAois = ${$countydata{$county}}[0] ;
-	my $cx = ${$countydata{$county}}[1] ;
-	my $cy = ${$countydata{$county}}[2] ;
-	my $countyAoiCtr = ${$countydata{$county}}[3] ;
+	my $listofAois = $countydata{$county}{'aois'} ;
+	my $cx = $countydata{$county}{'cx'} ;
+	my $cy = $countydata{$county}{'cy'} ;
+	my $countyAoiCtr = $countydata{$county}{'centroid'};
 	foreach my $geomkey (@$geometries) {
 		my $coordinates = $$geomkey{'Polygon'}{'outerBoundaryIs'}{'LinearRing'}{'coordinates'} ;
 		my @plist = arrayToPolygon($coordinates) ;
@@ -157,7 +158,7 @@ foreach my $pref (@placemarkhashes) {
 }
 print "$aoiCtr AOIs recorded, total area of $totalArea: " ;
 for my $cname (keys %countydata) {
-	my $pc = ${$countydata{$cname}}[0] ;
+	my $pc = $countydata{$cname}{'aois'};
 	my $np = @$pc ;
 	print "$cname -> $np ",
 }
@@ -169,7 +170,8 @@ $nc = $numclusters = 0;
 foreach my $cn (keys %countydata)
 {
 	print "Trying K-means clustering for $cn \n" ;
-	($clusters[$nc],$clustercenters[$nc],$tclusters[$nc]) = aoiClusters(${$countydata{$cn}}[0],${$countydata{$cn}}[1],${$countydata{$cn}}[2],$totalArea) ;
+	($clusters[$nc],$clustercenters[$nc],$tclusters[$nc]) = 
+		aoiClusters($countydata{$cn}{'aois'},$countydata{$cn}{'cx'},$countydata{$cn}{'cy'},$totalArea) ;
 	$numclusters += $tclusters[$nc] ;
 	print "$tclusters[$nc] clusters returned (total=$numclusters)\n" ;
 	$nc++ ;
@@ -213,7 +215,7 @@ foreach my $newc (keys %{$clusters[$i]}) {
 	print "newc = $newc newcn = $newcn\n" ;
 	for my $pk (@clist){
 		my $pgon = 0 ;
-		my $preflist = ${$countydata{$cn}}[0];
+		my $preflist = $countydata{$cn}{'aois'};
 		foreach my $pref (@$preflist) {
 			if ($$pref{'name'} eq $pk) {
 				$pgon = $$pref{'polygon'} ;
