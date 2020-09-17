@@ -54,7 +54,6 @@ close(F2) ;
 #print "Writing to kmz file $opt_k\n" ;
 #my $opkml = Geo::KML->new(version => '2.2.0') ;
 #$opkml->writeKML($data,$opt_k) ;
-#exit(1) ;
 
 #defined $ns or die "don't understand file content\n";
 #print "$ns\n" ;
@@ -67,8 +66,6 @@ close(F2) ;
 #
 my $EPS = 0.001 ;
 my $totalArea = 0 ;
-my @aois ;
-my (@cx,@cy) ;
 my $aoiCtr=0;
 my $cxavg = 0 ;
 my $cyavg = 0 ;
@@ -104,11 +101,34 @@ print "$placemarks Placemarks found, $featurecnt Features found\n" ;
 
 use Math::Polygon::Convex qw/chainHull_2D/ ;
 
+my @counties ;
+my %countydata ;
 foreach my $pref (@placemarkhashes) {
+	my $countyAoiCtr = 0;
 	my $geometries = $$pref{'MultiGeometry'}{'AbstractGeometryGroup'} ;
+	my $description = $$pref{'description'} ;
+	my ($county,$new) = getCounty($description,\@counties) ;
+	if ($new == 0) {
+		push @counties, $county;
+		my @listofAois ;
+		my @cx ;
+		my @cy ;
+		my @data ;
+		my $aoiCtr = 0;
+		$data[0] = \@listofAois ;
+		$data[1] = \@cx ;
+		$data[2] = \@cy ;
+		$data[3] = \$aoiCtr ;
+		$countydata{$county} = \@data ;
+	}
 	my @pcoords ;
 	my @polygonlist ;
 	my $nxtp=0;
+
+	my $listofAois = ${$countydata{$county}}[0] ;
+	my $cx = ${$countydata{$county}}[1] ;
+	my $cy = ${$countydata{$county}}[2] ;
+	my $countyAoiCtr = ${$countydata{$county}}[3] ;
 	foreach my $geomkey (@$geometries) {
 		my $coordinates = $$geomkey{'Polygon'}{'outerBoundaryIs'}{'LinearRing'}{'coordinates'} ;
 		my @plist = arrayToPolygon($coordinates) ;
@@ -123,27 +143,36 @@ foreach my $pref (@placemarkhashes) {
 	$nxtaoi->beautify() ;
 	my $pcnt = $nxtaoi->nrPoints ;
 	my $parea = $nxtaoi->area()*$milesperlat*$milesperlong ;
-	printf "Converted placemark to convex hull of %d points, area = %.4g (closed=%d) ", $pcnt,$parea,$nxtaoi->isClosed() ;
-	#			print "Polygon created of $pcnt points, area=$parea, centroid=$cx[$aoiCtr],$cy[$aoiCtr]\n" ; 
+	#	printf "Converted placemark to convex hull of %d points, area = %.4g (closed=%d) ", $pcnt,$parea,$nxtaoi->isClosed() ;
 	next unless ($parea > $EPS) ;
 	next unless ($nxtaoi->isClosed()) ;
 	my $center =  $nxtaoi->centroid() ;
-	($cx[$aoiCtr],$cy[$aoiCtr]) = @$center ;
-	print " centroid=$cx[$aoiCtr],$cy[$aoiCtr]\n" ; 
+	($$cx[$$countyAoiCtr],$$cy[$$countyAoiCtr]) = @$center ;
+	#print " centroid=$$cx[$$countyAoiCtr],$$cy[$$countyAoiCtr]\n" ; 
 	my %aoihash = ( 'name' => $$pref{'name'} , 'polygon' => \$nxtaoi ) ;
-	#	push @aois,$nxtaoi ;
-	push @aois,\%aoihash ;
+	push @$listofAois,\%aoihash ;
 	$totalArea += $parea ;
+	$$countyAoiCtr++ ;
 	$aoiCtr++ ;
 }
 print "$aoiCtr AOIs recorded, total area of $totalArea: " ;
+for my $cname (keys %countydata) {
+	my $pc = ${$countydata{$cname}}[0] ;
+	my $np = @$pc ;
+	print "$cname -> $np ",
+}
+print "\n" ;
 
 
-my ($clusters,$clustercenters, $numclusters) ;
+my (@clusters,@clustercenters,$numclusters,@tclusters,$nc) ;
+$nc = $numclusters = 0;
+foreach my $cn (keys %countydata)
 {
-	print "Trying K-means clustering\n" ;
-	($clusters,$clustercenters,$numclusters) = aoiClusters(\@aois,\@cx,\@cy,$totalArea) ;
-	print "$numclusters clusters returned\n" ;
+	print "Trying K-means clustering for $cn \n" ;
+	($clusters[$nc],$clustercenters[$nc],$tclusters[$nc]) = aoiClusters(${$countydata{$cn}}[0],${$countydata{$cn}}[1],${$countydata{$cn}}[2],$totalArea) ;
+	$numclusters += $tclusters[$nc] ;
+	print "$tclusters[$nc] clusters returned (total=$numclusters)\n" ;
+	$nc++ ;
 }
 my $nc = 0;
 my $clr ;
@@ -159,10 +188,11 @@ foreach my $stylehash (@$stylegroup) {
 }
 print "Found $nc styles\n" ;
 my $oldnc = $nc ;
-for ($nc = 0; $nc<$numclusters; $nc++){
+$nc = 0;
+for ($nc = 0; $nc<@colors; $nc++){
 	print "Adding new style $nc\n" ;
 	my %newstyle ;
-	my %newst = makeNewStyle($nc) ;
+	my %newst = makeNewStyle($nc,$colors[$nc]) ;
 	$newstyle{'Style'} = \%newst ;
 	push @$stylegroup, \%newstyle ;
 }
@@ -173,19 +203,25 @@ my $newcn = $oldnc ;
 	#	print "\n$cluster_id   =>   @{$clusters->{$cluster_id}}\n";
 
 my @newclusters ;
-foreach my $newc (sort keys %{$clusters}) {
+my $i = 0;
+foreach my $cn (keys %countydata)
+{
+foreach my $newc (keys %{$clusters[$i]}) {
 	my @clusterpoints ;
-	my @clist = @{$clusters->{$newc}} ;
+	my @clist = @{$clusters[$i]->{$newc}} ;
 	my @plist ;
 	print "newc = $newc newcn = $newcn\n" ;
 	for my $pk (@clist){
 		my $pgon = 0 ;
-		foreach my $pref (@aois) {
-			my %id = %$pref ;
+		my $preflist = ${$countydata{$cn}}[0];
+		foreach my $pref (@$preflist) {
 			if ($$pref{'name'} eq $pk) {
 				$pgon = $$pref{'polygon'} ;
 				last ;
 			}
+		}
+		if ($pgon == 0) {
+			die "Couldn't find $pk in data for $counties[$i]\n" ;
 		}
 		#		if ($pgon == 0) {die "Can't find $pk in list of placemarks\n" ;}
 		my @points = $$pgon->points() ;
@@ -194,15 +230,19 @@ foreach my $newc (sort keys %{$clusters}) {
 	}
 	#	my $clusterpoly = chainHull_2D @clusterpoints ;
 	my $clusterpoly = Math::Polygon->new(cvxPolygon::combinePolygonsConvex(\@plist)) ;
-	printf "Convex operation returns polygon with %d points, closed=%d\n",$clusterpoly->nrPoints(),$clusterpoly->isClosed() ;
+	#	printf "Convex operation returns polygon with %d points, closed=%d\n",$clusterpoly->nrPoints(),$clusterpoly->isClosed() ;
 	my %options ;
 	$options{'remove_spike'} = 1 ;
 	$clusterpoly->beautify(%options) ;
 	@clusterpoints = $clusterpoly->points() ;
 	
-	my $newcluster = makeNewCluster($clusterpoly,\%pmlistentry,$newcn) ;
+	my $description = makeNewDescription("Cluster $newcn, county $cn") ;
+	my $cstyle = sprintf("ClusterStyle%.3d",$newcn%@colors) ;
+	my $newcluster = makeNewCluster($clusterpoly,\%pmlistentry,$newcn,$cstyle,$description) ;
 	$newclusters[$newcn - $oldnc] = $newcluster ;
 	$newcn++ ; printf("newcn -> $newcn\n") ;
+}
+$i++ ;
 }
 #Assign styles to placemarks
 #foreach my $pref (@placemarkhashes) {
@@ -241,6 +281,18 @@ sub aoiClusters{
 	my $kmin = int($tA/2000) ;
 	my $kmax = int(sqrt(@$aoisref/2)) ;
 	print "Initial estimate kmax=$kmax kmin=$kmin\n" ; 
+	if (@$aoisref < 9) {
+		my @list ;
+		my @center = ($$cxref[0],$$cyref[0]) ;
+		for (my $i = 0 ; $i <@$aoisref; $i++) {
+			push @list, ${$$aoisref[$i]}{'name'} ;
+		}
+		my %sc ;
+		$sc{'cluster0'} = \@list;
+		return (\%sc, \@center,1) ;
+	}
+
+
 	while ($kmax <= $kmin && $kmin > 4) {
 		$kmin -= $kmin << 2;
 	}
@@ -251,7 +303,7 @@ sub aoiClusters{
 		$kmax = $kmin = int(sqrt(@$aoisref/2)) ;
 	open (FTMP, ">",$datafile) || die "Can't open $datafile for creating cluster list\n" ;
 	for (my $aoi=0 ; $aoi < @$aoisref; $aoi++) {
-		printf FTMP "%s,%.6g,%.6g\n", ${@$aoisref[$aoi]}{'name'}, @$cxref[$aoi], @$cyref[$aoi] ;
+		printf FTMP "%s,%.6g,%.6g\n", ${$$aoisref[$aoi]}{'name'}, $$cxref[$aoi], $$cyref[$aoi] ;
 	}
 	close (FTMP) ;
 	print "Trying K-means with $kmax,$kmin clusters\n" ;
@@ -269,7 +321,7 @@ sub aoiClusters{
 	my ($clusters,$clusterCenters) = $clusterer->kmeans() ;
 	foreach my $cluster_id (sort keys %{$clusters}) {
 		$nc++ ;
-	#	print "\n$cluster_id   =>   @{$clusters->{$cluster_id}}\n";
+		print "\n$cluster_id   =>   @{$clusters->{$cluster_id}}\n";
 	}
 	unlink($datafile) ;
 	printf "Generated %d clusters\n",$nc;
@@ -314,27 +366,23 @@ sub arrayToPolygon{
 }
 
 
-sub makeNewDescription{
-	my $details = shift ;
-	if ($details eq "") { $details = sprintf("No Details provided") ; }
-my $descstring = sprintf <<EODESC
-'<html xmlns:fo="http://www.w3.org/1999/XSL/Format" xmlns:msxsl="urn:schemas-microsoft-com:xslt">
-<head>
-<META http-equiv="Content-Type" content="text/html">
-<meta http-equiv="content-type" content="text/html; charset=UTF-8">
-</head>
 
-<body style="margin:0px 0px 0px 0px;overflow:auto;background:#FFFFFF;">
-<table style="font-family:Arial,Verdana,Times;font-size:12px;text-align:left;width:100%;border-collapse:collapse;padding:3px 3px 3px 3px">
-<tr style="text-align:center;font-weight:bold;background:#9CBCE2">
-<td>$details</td>
-
-</tr>
-</body>
-
-</html>
-EODESC
-;
-return $descstring ;
+sub getCounty{
+	my $dstr = shift ;
+	my $clist = shift ;
+	my $cname = "" ;
+	my $fnd = 0 ;
+	if ($dstr =~ m@<td>county</td>\s*<td>([A-Za-z]+)</td>@s) {
+		$cname = $1 ;
+		for my $ce (@$clist) {
+			if ($ce eq $cname) {
+				$fnd = 1 ;
+				last ;
+			}
+		}
+		return ($cname,$fnd) ;
+	}
+	return ($cname,$fnd) ;
 }
+	
 

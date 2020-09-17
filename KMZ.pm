@@ -5,7 +5,7 @@ require Exporter ;
 use strict;
 
 our @ISA = qw(Exporter);
-our @EXPORT = qw(makeNewStyle makeNewCluster makeNewPolygon);
+our @EXPORT = qw(makeNewStyle makeNewCluster makeNewPolygon makeNewDescription);
 
 
 sub polygonToArray {
@@ -24,11 +24,19 @@ sub polygonToArray {
 sub makeNewStyle{
 	my %newst ;
 	my $num = shift ;
-	my $styleid = "ClusterStyle" . sprintf("%.3d",$num) ;
+	my $rgb = shift || -1;
+	my $styleid = shift || "ClusterStyle" . sprintf("%.3d", $num) ;
 	my ($red,$blue,$green) ;
-	$red = int(rand(255)) ;
-	$blue = int(rand(255)) ;
-	$green = int(rand(255)) ;
+	if ($rgb == -1) {
+		$red = int(rand(255)) ;
+		$blue = int(rand(255)) ;
+		$green = int(rand(255)) ;
+	}
+	else {
+		$red = ($rgb>>16) & 0xFF ;
+		$blue = ($rgb>>8) & 0xFF ;
+		$green = ($rgb) & 0xFF ;
+	}
 	my $clr = (0xff<<24) | (($blue) << 16) | (($green) << 8) | ($red)  ;
 	$newst{'id'} = $styleid ;
 	$newst{'PolyStyle'} = {'color' => $clr, 'outline' => 1, 'fill' => 0} ;
@@ -40,14 +48,16 @@ sub makeNewCluster{
 	my $clusterpoly = shift ;
 	my $template = shift ;
 	my $newcn = shift ;
+	my $styleid = shift || sprintf("ClusterStyle%.3d",$newcn) ;
+	my $desc = shift || "Empty string\n" ;
 	my %newcluster ;
 	my $polygoncoords  = makeNewPolygon($clusterpoly) ;
 	my %placemark ;
 	my %polygon ;
 	my @polygons ;
 	$placemark{'name'} = sprintf "Cluster_%d",$newcn ;
-	$placemark{'styleUrl'} = sprintf ("ClusterStyle%.3d",$newcn) ;
-	$placemark{'description'} = "Empty string"; 
+	$placemark{'styleUrl'} = "#".$styleid ;
+	$placemark{'description'} = $desc; 
 	$placemark{'id'} = sprintf("ClusterID_%d",$newcn)  ;
 
 	$polygon{'outerBoundaryIs'}{'LinearRing'}{'coordinates'} = $polygoncoords ;
@@ -72,4 +82,28 @@ sub makeNewPolygon{
 	#$phashref{'extrude'} = 0;
 	#%phashref ;
 	return \@pcoords ;
+}
+
+sub makeNewDescription{
+	my $details = shift ;
+	if ($details eq "") { $details = sprintf("No Details provided") ; }
+my $descstring = sprintf <<EODESC
+'<html xmlns:fo="http://www.w3.org/1999/XSL/Format" xmlns:msxsl="urn:schemas-microsoft-com:xslt">
+<head>
+<META http-equiv="Content-Type" content="text/html">
+<meta http-equiv="content-type" content="text/html; charset=UTF-8">
+</head>
+
+<body style="margin:0px 0px 0px 0px;overflow:auto;background:#FFFFFF;">
+<table style="font-family:Arial,Verdana,Times;font-size:12px;text-align:left;width:100%;border-collapse:collapse;padding:3px 3px 3px 3px">
+<tr style="text-align:center;font-weight:bold;background:#9CBCE2">
+<td>$details</td>
+
+</tr>
+</body>
+
+</html>
+EODESC
+;
+return $descstring ;
 }

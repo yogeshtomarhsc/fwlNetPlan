@@ -4,7 +4,7 @@ package cvxPolygon;
 require Exporter ;
 use strict;
 
-our @ISA = qw(combinePolygonsConvex printPointList);
+our @ISA = qw(Exporter);
 our @EXPORT = qw(combinePolygonsConvex printPointList);
 #
 # Start processing.. combine all points into single array 
@@ -39,7 +39,7 @@ sub combinePolygonsConvex{
 		if ($skip == 0) { $outsidepoints[$ptcnt++] = $pt ; }
 	}
 	print " reduced to $ptcnt\n" ; 
-	printPointList(\@outsidepoints,"After consolidation") ;
+	#	printPointList(\@outsidepoints,"After consolidation",0) ;
 	#
 	#Normalize the points
 	#
@@ -64,14 +64,14 @@ sub combinePolygonsConvex{
 		${$pt}[0] += $centx ;${$pt}[1] += $centy;
 	}
 	makeClosed(\@sortedpoints) ;
-	printPointList(\@sortedpoints,"After sorting") ;
+	printPointList(\@sortedpoints,"After sorting",0) ;
 	
 	#Test for convexity
 	my $cvx = 1 ;
 	do {  
 		$cvx = makeConvexPolygon(\@sortedpoints) ;
-		printPointList(\@sortedpoints,"After convexing\n") ;
 	} while ($cvx != 0) ;
+	printPointList(\@sortedpoints,"After convexing",0) ;
 	makeClosed(\@sortedpoints) ;
 	return @sortedpoints;
 }
@@ -118,7 +118,7 @@ sub makeConvexPolygon {
 		my $zcrossproduct =  ($dx1*$dy2 - $dy1*$dx2) ;
 		if ($zcrossproduct > 0) {
 			$skip[($i+1)%@$pts] = 1 ;
-			print "$$pt1[0],$$pt1[1] is non-convex\n" ;
+			#			print "$$pt1[0],$$pt1[1] is non-convex\n" ;
 			$cvx++ ;
 		}
 		else
@@ -128,14 +128,14 @@ sub makeConvexPolygon {
 	}
 	for (my $i = @$pts-1; $i >= 0; $i--) {
 		if ($skip[$i] == 1 ) {
-			print "Overwriting $i\n" ;
+			#print "Overwriting $i\n" ;
 			for (my $j = $i; $j < @$pts-1; $j++) {
 				$$pts[$j] = $$pts[$j+1] ;
 			}
 		}
 	}
 	splice @$pts,@$pts-$cvx,$cvx ;
-	printPointList($pts,"inside convex") ;
+	#	printPointList($pts,"inside convex",0) ;
 	return $cvx ;
 }
 
@@ -153,8 +153,11 @@ sub makeClosed {
 sub printPointList {
 	my $plist = shift ;
 	my $string = shift ;
-	print "$string\n" ;
+	my $verbose = shift ;
+	my $np = @$plist ;
+	print "$string number of points=$np\n" ;
 	for (my $j=0; $j<@$plist; $j++) {
+		last unless ($verbose)  ;
 		printf "[%.4g:%.4g] ",${$$plist[$j]}[0], ${$$plist[$j]}[1] ;
 	}
 	printf("\n") ;
