@@ -20,7 +20,7 @@ undef ($oh) ;
 if ($opt_o) {
 	open ($oh, ">", $opt_o) || die "Couldn't open $opt_o for writing\n" ;
 	print $oh <<OH
-County\tNW Lat,Long\tSE Lat,Long\tCells\tArea\tTerrain Classification
+County,NW Lat,Long,SE Lat,Long,Cells,Area,Terrain Classification
 OH
 ;
 }
@@ -56,7 +56,7 @@ for (my $i = 0; $i < @foldersub; $i++) {
 }
 
 for my $td (keys %towerdata) {
-	print $oh "$td\t$towerdata{$td}{'nw'}\t$towerdata{$td}{'se'}\t$towerdata{$td}{'ncells'}\t$towerdata{$td}{'area'}\tUnknown\n" ;
+	print $oh "$td,$towerdata{$td}{'nw'},$towerdata{$td}{'se'},$towerdata{$td}{'ncells'},$towerdata{$td}{'area'},Unknown\n" ;
 }
 close ($oh) ;
 
@@ -142,11 +142,11 @@ sub xmlToPolygon {
 	       my %tdata ;
        		$tdata{'area'} = $pgon->area()*$milesperlat*$milesperlong;	       
 		$tdata{'nw'} = sprintf("%.10g,%.10g",$xmin,$ymax) ;
-		$tdata{'se'} = sprintf("%.10g,%.10g",$xmin,$ymax) ;
+		$tdata{'se'} = sprintf("%.10g,%.10g",$xmax,$ymin) ;
 		$towerdata{$cname} = \%tdata ;
 	}
 	else {
-		$towerdata{$cname}{'area'} = $pgon->area()*$milesperlat*$milesperlong;
+		$towerdata{$cname}{'area'} += $pgon->area()*$milesperlat*$milesperlong;
 		$towerdata{$cname}{'nw'} = sprintf("%.10g,%.10g",$xmin,$ymax) ;
 		$towerdata{$cname}{'se'} = sprintf("%.10g,%.10g",$xmin,$ymax) ;
 	}
