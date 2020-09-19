@@ -29,14 +29,14 @@ sub proximityCluster {
 			my $num = @$boxes ;
 			#my $closest = int(rand($num)) ;
 			print "\tClosest is ${$$boxes[$closest]}{'id'}\n" ;
-			last unless (canAddToCluster($cluster,$$boxes[$nc],1.1)) ;
+			last unless (canAddToCluster($cluster,$$boxes[$closest],1.1)) ;
 			print "Adding \n" ;
-			moveToCluster($cluster,$nc,$boxes) ;
+			moveToCluster($cluster,$closest,$boxes) ;
 		}
 		my $bleft = @$boxes ;
 		print "Finished for this cluster:$bleft\n" ;
 	} while (@$boxes) ;
-	print Dumper @clusters ;
+	#	print Dumper @clusters ;
 	my %rclusters ;
 	for my $cl (@clusters) {
 		my $mlist = $$cl{'members'} ;
@@ -47,7 +47,7 @@ sub proximityCluster {
 		my $cid = $$cl{'id'} ;
 		$rclusters{$cid} = \@idlist ;
 	}
-	print Dumper %rclusters ;
+		print Dumper %rclusters ;
 	return %rclusters ;
 }
 
@@ -90,29 +90,32 @@ sub canAddToCluster {
 	my $thresh = shift;
 	my $totalarea =  0 ;
 	my @testcluster = @{$$cluster{'members'}} ;
-	splice @testcluster,@testcluster,0,$box ;
 	for (my $i = 0; $i < @testcluster; $i++) {
-		my $box = $testcluster[$i] ;
-		$totalarea += $$box{'area'} ;
+		my $bx = $testcluster[$i] ;
+		$totalarea += $$bx{'area'} ;
 	}
-	print "canAdd area of cluster=$totalarea\n" ;
+	splice @testcluster,@testcluster,0,$box ;
+	print "scatter: canAdd area of cluster=$totalarea\n" ;
 	my $newwt = weightedCentroid(\@testcluster) ;
-	printf "New weighted centroid:%.4g,%.4g->\n",$$newwt[0],$$newwt[1] ;
+	printf "scatter: New weighted centroid:%.4g,%.4g->\n",$$newwt[0],$$newwt[1] ;
+	#splice @testcluster,-1 ;
 	my $newscatter = scatter(\@testcluster,$newwt) ;
-	printf "new scatter:%.4g, old scatter:%.4g\n",$newscatter,$$cluster{'scatter'} ;
+	printf "scatter: new scatter:%.4g, old scatter:%.4g\n",$newscatter,$$cluster{'scatter'} ;
 	my $oldscatter = $$cluster{'scatter'} ;
-	if ($newscatter < $thresh*$oldscatter) {
-		print "can Add YES\n" ;
-		return 1 ;
+	if ($oldscatter == 0 && $newscatter < 0.1) {
+		print "can ADD solitary YES\n" ;
+		return 1;
 	}
-	elsif ($newscatter < sqrt($totalarea)) {
-		print "can Add by area YES\n" ;
+	elsif ($newscatter < $thresh*$oldscatter) {
+		print "can Add YES\n" ;
+		print Dumper $box ;
 		return 1 ;
 	}
 	else {
 		my $rnd = rand(1) ;
 		if ($rnd < 0.2) {
 			print "can Add Random\n" ;
+			print Dumper $box ;
 			return 1 ;
 		}
 		else { 
@@ -157,6 +160,7 @@ sub moveToCluster{
 	my $cid = shift;
 	my $boxes = shift ;
 	print "Moving $cid to the existing cluster $$cluster{'id'} \n",$cid ;
+	print Dumper $$boxes[$cid] ;
 	push @{$$cluster{'members'}} , $$boxes[$cid] ;
 	$$cluster{'centroid'} = weightedCentroid($$cluster{'members'}) ;
 	$$cluster{'scatter'} = scatter($$cluster{'members'},$$cluster{'centroid'}) ;
@@ -177,7 +181,7 @@ sub moveToCluster{
 sub ptDistance {
 	my $wx1 = shift ;
 	my $wx2 = shift ;
-	printf "ptDistance: %.4g:%.4g  to %.4g:%.4g\n",$$wx1[0],$$wx1[1], $$wx2[0],$$wx2[1] ;
+	printf "ptDistance: %.4g:%.4g  to %.4g:%.4g:",$$wx1[0],$$wx1[1], $$wx2[0],$$wx2[1] ;
 	my $dist = sqrt((($milesperlat*($$wx1[0] - $$wx2[0]))**2.0) + ($milesperlong*($$wx1[1] - $$wx2[1]))**2.0) ;
 	print "$dist\n" ;
 	return $dist;
@@ -208,6 +212,7 @@ sub scatter {
 	my $centroid = shift ;
 	my @dist ;
 	my $tdist = 0;
+	my $tarea = 0;
 	my $i;
 	print "Entering scatter: centroid $$centroid[0] $$centroid[1]\n" ;
 	my @memberlist = @$members ;
@@ -216,10 +221,15 @@ sub scatter {
 		my $ccent = $$member{'centroid'} ;
 		my $area = $$member{'area'} ;
 		$dist[$i] = ptDistance($ccent,$centroid) ;
+		$tarea += $area ;
 		#/sqrt{area} ;
 		$tdist += $dist[$i] ;
 	}
-	print "tdist=$tdist\n" ;
-	if ($i == 0) { return 100 ; }
-	else { return $tdist/$i} ;
+	print "tdist=$tdist: i=$i tarea=$tarea " ;
+	if ($i == 0) { print "\n" ; return 100 ; }
+	else { 
+		my $sctr = $tdist/($i*$tarea);
+		printf "Final scatter =%.4g\n",$sctr;
+		return $sctr;
+	} 
 }
