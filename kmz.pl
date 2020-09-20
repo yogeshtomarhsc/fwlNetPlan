@@ -19,8 +19,10 @@ our $opt_f = "" ;
 our $df = "kml.dat" ;
 my $odf = "kmlmod.dat" ;
 our $opt_k = "" ;
-getopts('f:k:') ;
+our $opt_r = "sampleReport.csv" ;
+getopts('f:k:r:') ;
 my @colors = (0xffff0000, 0xff00ff00, 0xff0000ff, 0xffaa3333, 0xff33aa22,0xff00cccc, 0xff22cc22, 0xff22aacc) ;
+my @browncolors = (0xfffff8dc, 0xffffe4c4, 0xfff5deb3, 0xffd2b48c, 0xff8c8f8f,0xfff4a460, 0xffdaa520, 0xa0522d) ;
 my %pmlistentry ;
 
 if ($opt_f eq "") {
@@ -36,8 +38,12 @@ else {
 			} ;
 	}
 }
+if ($opt_r) {
+	printf "Dumping report to %s\n",$opt_r ;
+}
 
 srand($$) ;
+
 
 
 #my ($ns,$data) = Geo::KML->from($opt_f) ;
@@ -103,6 +109,7 @@ use Math::Polygon::Convex qw/chainHull_2D/ ;
 
 my @counties ;
 my %countydata ;
+my %terrainData ;
 foreach my $pref (@placemarkhashes) {
 	my $countyAoiCtr = 0;
 	my $geometries = $$pref{'MultiGeometry'}{'AbstractGeometryGroup'} ;
@@ -111,15 +118,17 @@ foreach my $pref (@placemarkhashes) {
 	#if ($new == 0) {
 	if (!defined %countydata{$county}) {
 		push @counties, $county;
-		my @listofAois ;
+		my @listAois ;
 		my @cx ;
 		my @cy ;
+		my @clusters ;
 		my %data ;
 		my $aoiCtr = 0;
-		$data{'aois'} = \@listofAois ;
+		$data{'aois'} = \@listAois ;
 		$data{'cx'}= \@cx ;
 		$data{'cy'} = \@cy ;
 		$data{'centroid'} = \$aoiCtr ;
+		$data{'clusters'} = \@clusters ; 
 		$countydata{$county} = \%data ;
 	}
 	my @pcoords ;
@@ -141,7 +150,7 @@ foreach my $pref (@placemarkhashes) {
 	}
 		my $nxtaoi = chainHull_2D @pcoords ;
 	#	my $nxtaoi = Math::Polygon->new(cvxPolygon::combinePolygonsConvex(\@polygonlist)) ;
-	$nxtaoi->beautify() ;
+	$nxtaoi->simplify() ;
 	my $pcnt = $nxtaoi->nrPoints ;
 	my $parea = $nxtaoi->area()*$milesperlat*$milesperlong ;
 	#	printf "Converted placemark to convex hull of %d points, area = %.4g (closed=%d) ", $pcnt,$parea,$nxtaoi->isClosed() ;
@@ -149,8 +158,9 @@ foreach my $pref (@placemarkhashes) {
 	next unless ($nxtaoi->isClosed()) ;
 	my $center =  $nxtaoi->centroid() ;
 	($$cx[$$countyAoiCtr],$$cy[$$countyAoiCtr]) = @$center ;
+	$terrainData{$$pref{'id'}} = getTerrainData(@$center) ;
 	#print " centroid=$$cx[$$countyAoiCtr],$$cy[$$countyAoiCtr]\n" ; 
-	my %aoihash = ( 'name' => $$pref{'name'} , 'polygon' => \$nxtaoi ) ;
+	my %aoihash = ( 'id' => $$pref{'id'} , 'polygon' => \$nxtaoi ) ;
 	push @$listofAois,\%aoihash ;
 	$totalArea += $parea ;
 	$$countyAoiCtr++ ;
@@ -172,6 +182,7 @@ foreach my $cn (keys %countydata)
 	print "Trying K-means clustering for $cn \n" ;
 	($clusters[$nc],$clustercenters[$nc],$tclusters[$nc]) = 
 		aoiClusters($countydata{$cn}{'aois'},$countydata{$cn}{'cx'},$countydata{$cn}{'cy'},$totalArea) ;
+	$countydata{$cn}{'clusterMap'} = $clusters[$nc] ;
 	$numclusters += $tclusters[$nc] ;
 	print "$tclusters[$nc] clusters returned (total=$numclusters)\n" ;
 	$nc++ ;
@@ -194,7 +205,14 @@ $nc = 0;
 for ($nc = 0; $nc<@colors; $nc++){
 	print "Adding new style $nc\n" ;
 	my %newstyle ;
-	my %newst = makeNewStyle($nc,$colors[$nc]) ;
+	my %newst = makeNewOutlineStyle($nc,$colors[$nc]) ;
+	$newstyle{'Style'} = \%newst ;
+	push @$stylegroup, \%newstyle ;
+}
+for ($nc = 0; $nc<@browncolors; $nc++){
+	print "Adding new style $nc\n" ;
+	my %newstyle ;
+	my %newst = makeNewSolidStyle($nc,$browncolors[$nc]) ;
 	$newstyle{'Style'} = \%newst ;
 	push @$stylegroup, \%newstyle ;
 }
@@ -208,52 +226,57 @@ my @newclusters ;
 my $i = 0;
 foreach my $cn (keys %countydata)
 {
-foreach my $newc (keys %{$clusters[$i]}) {
-	my @clusterpoints ;
-	my @clist = @{$clusters[$i]->{$newc}} ;
-	my @plist ;
-	print "newc = $newc newcn = $newcn\n" ;
-	for my $pk (@clist){
-		my $pgon = 0 ;
-		my $preflist = $countydata{$cn}{'aois'};
-		foreach my $pref (@$preflist) {
-			if ($$pref{'name'} eq $pk) {
-				$pgon = $$pref{'polygon'} ;
-				last ;
+	foreach my $newc (keys %{$clusters[$i]}) {
+		my @clusterpoints ;
+		my @clist = @{$clusters[$i]->{$newc}} ;
+		my @plist ;
+		print "newc = $newc newcn = $newcn\n" ;
+		for my $pk (@clist){
+			my $pgon = 0 ;
+			my $preflist = $countydata{$cn}{'aois'};
+			foreach my $pref (@$preflist) {
+				if ($$pref{'id'} eq $pk) {
+					$pgon = $$pref{'polygon'} ;
+					last ;
+				}
 			}
-		}
-		if ($pgon == 0) {
-			die "Couldn't find $pk in data for $counties[$i]\n" ;
-		}
+			if ($pgon == 0) {
+				die "Couldn't find $pk in data for $counties[$i]\n" ;
+			}
 		#		if ($pgon == 0) {die "Can't find $pk in list of placemarks\n" ;}
-		my @points = $$pgon->points() ;
-		splice @clusterpoints,@clusterpoints,0,@points ;
-		push @plist,$$pgon ;
-	}
-	#	my $clusterpoly = chainHull_2D @clusterpoints ;
-	my $clusterpoly = Math::Polygon->new(cvxPolygon::combinePolygonsConvex(\@plist)) ;
-	#	printf "Convex operation returns polygon with %d points, closed=%d\n",$clusterpoly->nrPoints(),$clusterpoly->isClosed() ;
-	my %options ;
-	$options{'remove_spike'} = 1 ;
-	$clusterpoly->beautify(%options) ;
-	@clusterpoints = $clusterpoly->points() ;
+			$$pgon->simplify() ;
+			my @points = $$pgon->points() ;
+			splice @clusterpoints,@clusterpoints,0,@points ;
+			push @plist,$$pgon ;
+		}
+		#my $clusterpoly = chainHull_2D @clusterpoints ;
+		my $clusterpoly = Math::Polygon->new(cvxPolygon::combinePolygonsConvex(\@plist)) ;
+		printf "Convex operation returns polygon with %d points, closed=%d\n",$clusterpoly->nrPoints(),$clusterpoly->isClosed() ;
+		my %options ;
+		$options{''} = 1 ;
+		@clusterpoints = $clusterpoly->points() ;
+		my %cinf ;
+		$cinf{'id'} = $newc;
+		$cinf{'poly'} = $clusterpoly ;
+		push @{$countydata{$cn}{'clusters'}} , \%cinf ;
 	
-	my $description = makeNewDescription("Cluster $newcn, county $cn") ;
-	my $cstyle = sprintf("ClusterStyle%.3d",$newcn%@colors) ;
-	my $newcluster = makeNewCluster($clusterpoly,\%pmlistentry,$newcn,$cstyle,$description) ;
-	$newclusters[$newcn - $oldnc] = $newcluster ;
-	$newcn++ ; printf("newcn -> $newcn\n") ;
-}
-$i++ ;
+		my $description = makeNewDescription("Cluster $newcn, county $cn") ;
+		my $cstyle = sprintf("ClusterStyle%.3d",$newcn%@colors) ;
+		my $newcluster = makeNewCluster($clusterpoly,\%pmlistentry,$newcn,$cstyle,$description) ;
+		$newclusters[$newcn - $oldnc] = $newcluster ;
+		$newcn++ ; printf("newcn -> $newcn\n") ;
+	}
+	$i++ ;
 }
 #Assign styles to placemarks
-#foreach my $pref (@placemarkhashes) {
-#	my $styleid = findInClusters($$pref{'name'},$clusters) ;
-#	next unless ($styleid != -1) ;
-#
-#}
-#	$$pref{'styleUrl'} = '#PolyStyle' . sprintf("%.3d",$styleid%$nc) ;
+foreach my $pref (@placemarkhashes) {
+	#my $styleid = findInClusters($$pref{'id'},$clusters) ;
+	my $styleid = $terrainData{$$pref{'id'}};
+	next unless ($styleid != -1) ;
+
+	$$pref{'styleUrl'} = '#TerrainStyle' . sprintf("%.3d",$styleid%$nc) ;
 #		print "Changing style to $$pref{'styleUrl'}\n" ;
+}
 	
 splice @{$featureref[0]},@{$featureref[0]},0,@newclusters ;
 
@@ -269,6 +292,7 @@ elsif ($opt_k =~ /.*[.]kml$/) {
 else {
 	print "Don't understand file type $opt_k\n" ;
 }
+printReport(\%countydata,$opt_r) ;
 exit(1) ;
 
 
@@ -287,7 +311,7 @@ sub aoiClusters{
 		my @list ;
 		my @center = ($$cxref[0],$$cyref[0]) ;
 		for (my $i = 0 ; $i <@$aoisref; $i++) {
-			push @list, ${$$aoisref[$i]}{'name'} ;
+			push @list, ${$$aoisref[$i]}{'id'} ;
 		}
 		my %sc ;
 		$sc{'cluster0'} = \@list;
@@ -305,7 +329,7 @@ sub aoiClusters{
 		$kmax = $kmin = int(sqrt(@$aoisref/2)) ;
 	open (FTMP, ">",$datafile) || die "Can't open $datafile for creating cluster list\n" ;
 	for (my $aoi=0 ; $aoi < @$aoisref; $aoi++) {
-		printf FTMP "%s,%.6g,%.6g\n", ${$$aoisref[$aoi]}{'name'}, $$cxref[$aoi], $$cyref[$aoi] ;
+		printf FTMP "%s,%.6g,%.6g\n", ${$$aoisref[$aoi]}{'id'}, $$cxref[$aoi], $$cyref[$aoi] ;
 	}
 	close (FTMP) ;
 	print "Trying K-means with $kmax,$kmin clusters\n" ;
@@ -387,4 +411,33 @@ sub getCounty{
 	return ($cname,$fnd) ;
 }
 	
+sub getTerrainData{
+	my @coords = shift ;
+	my $brown = int($coords[0]+$coords[1]) ;
+	return $brown%@browncolors ;
+}
+
+sub printReport{
+	my $cdata = shift ;
+	my $ofile = shift ;
+	open (FREP,">", "$ofile") || die "Can't open $ofile for writing\n" ; 
+	print FREP "County,Cluster id,Area (sq.miles),Number of Towers,List of CBGs\n" ;
+	for my $cname (keys %$cdata) {
+		my $clist = $$cdata{$cname}{'clusters'} ;
+		print "Processing county $cname\n" ;
+		my $clusterlist = $$cdata{$cname}{'clusterMap'} ;
+		for my $cid (@$clist) {
+			my $clusterarea = $milesperlat*$milesperlong*$$cid{'poly'}->area() ;
+			my $twrs = int($clusterarea/20.0) ;
+			printf FREP "%.10s,%10s,%.6g,%d,",$cname,$$cid{'id'},$clusterarea,$twrs;
+			my $cbglist = $$clusterlist{$$cid{'id'}} ;
+			for my $cbg (@$cbglist) {
+				print FREP "$cbg: ";
+			}
+			print FREP "\n" ;
+		}
+	}
+	close(FREP) ;
+}
+
 

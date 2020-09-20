@@ -5,7 +5,7 @@ require Exporter ;
 use strict;
 
 our @ISA = qw(Exporter);
-our @EXPORT = qw(makeNewStyle makeNewCluster makeNewPolygon makeNewDescription);
+our @EXPORT = qw(makeNewOutlineStyle makeNewSolidStyle makeNewCluster makeNewPolygon makeNewDescription);
 
 
 sub polygonToArray {
@@ -21,7 +21,7 @@ sub polygonToArray {
 	}
 	@opstr ;
 }
-sub makeNewStyle{
+sub makeNewOutlineStyle{
 	my %newst ;
 	my $num = shift ;
 	my $rgb = shift || -1;
@@ -42,6 +42,29 @@ sub makeNewStyle{
 	$newst{'PolyStyle'} = {'color' => $clr, 'outline' => 1, 'fill' => 0} ;
 	$newst{'LabelStyle'} = { 'color' => $clr, 'scale' => 0.0000 } ;
 	$newst{'LineStyle'} = { 'color' => $clr, 'width' => 3.0000 } ;
+	%newst ;
+}
+sub makeNewSolidStyle{
+	my %newst ;
+	my $num = shift ;
+	my $rgb = shift || -1;
+	my $styleid = shift || "TerrainStyle" . sprintf("%.3d", $num) ;
+	my ($red,$blue,$green) ;
+	if ($rgb == -1) {
+		$red = int(rand(255)) ;
+		$blue = int(rand(255)) ;
+		$green = int(rand(255)) ;
+	}
+	else {
+		$red = ($rgb>>16) & 0xFF ;
+		$blue = ($rgb>>8) & 0xFF ;
+		$green = ($rgb) & 0xFF ;
+	}
+	my $clr = (0xff<<24) | (($blue) << 16) | (($green) << 8) | ($red)  ;
+	$newst{'id'} = $styleid ;
+	$newst{'PolyStyle'} = {'color' => $clr, 'outline' => 1, 'fill' => 1} ;
+	$newst{'LabelStyle'} = { 'color' => $clr, 'scale' => 0.0000 } ;
+	$newst{'LineStyle'} = { 'color' => $clr, 'width' => 0.1000 } ;
 	%newst ;
 }
 sub makeNewCluster{
