@@ -102,26 +102,18 @@ sub canAddToCluster {
 	my $newscatter = scatter(\@testcluster,$newwt) ;
 	printf "scatter: new scatter:%.4g, old scatter:%.4g\n",$newscatter,$$cluster{'scatter'} ;
 	my $oldscatter = $$cluster{'scatter'} ;
-	if ($oldscatter == 0 && $newscatter < 0.1) {
+	if ($newscatter < $thresh) {
 		print "can ADD solitary YES\n" ;
 		return 1;
 	}
-	elsif ($newscatter < $thresh*$oldscatter) {
+	elsif ($newscatter < $oldscatter) {
 		print "can Add YES\n" ;
 		print Dumper $box ;
 		return 1 ;
 	}
 	else {
-		my $rnd = rand(1) ;
-		if ($rnd < 0.2) {
-			print "can Add Random\n" ;
-			print Dumper $box ;
-			return 1 ;
-		}
-		else { 
-			print "can Add NO\n" ;
-			return 0 ;
-		}
+		print "can Add NO\n" ;
+		return 0 ;
 	}
 }
 

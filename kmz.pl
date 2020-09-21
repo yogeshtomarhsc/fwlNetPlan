@@ -20,7 +20,14 @@ our $df = "kml.dat" ;
 my $odf = "kmlmod.dat" ;
 our $opt_k = "" ;
 our $opt_r = "sampleReport.csv" ;
-getopts('f:k:r:') ;
+our $opt_K = "Kmeans" ;
+our $opt_t = "" ;
+getopts('f:k:r:K:t:h') ;
+our $opt_h ;
+if ($opt_h) {
+	print "Usage:kmz.pl -f <input kmz file> -k <output kmz file> -r <report file> -t <terrain db> -K <Kmeans/proximity>\n";
+	exit(1) ;
+}
 my @colors = (0xffff0000, 0xff00ff00, 0xff0000ff, 0xffaa3333, 0xff33aa22,0xff00cccc, 0xff22cc22, 0xff22aacc) ;
 my @browncolors = (0xfffff8dc, 0xffffe4c4, 0xfff5deb3, 0xffd2b48c, 0xff8c8f8f,0xfff4a460, 0xffdaa520, 0xa0522d) ;
 my %pmlistentry ;
@@ -110,12 +117,13 @@ use Math::Polygon::Convex qw/chainHull_2D/ ;
 my @counties ;
 my %countydata ;
 my %terrainData ;
+if ($opt_h) {
+}
 foreach my $pref (@placemarkhashes) {
 	my $countyAoiCtr = 0;
 	my $geometries = $$pref{'MultiGeometry'}{'AbstractGeometryGroup'} ;
 	my $description = $$pref{'description'} ;
 	my ($county,$new) = getCounty($description,\@counties) ;
-	#if ($new == 0) {
 	if (!defined %countydata{$county}) {
 		push @counties, $county;
 		my @listAois ;
@@ -158,9 +166,12 @@ foreach my $pref (@placemarkhashes) {
 	next unless ($nxtaoi->isClosed()) ;
 	my $center =  $nxtaoi->centroid() ;
 	($$cx[$$countyAoiCtr],$$cy[$$countyAoiCtr]) = @$center ;
-	$terrainData{$$pref{'id'}} = getTerrainData(@$center) ;
+	my %tdata ; 
+		$tdata{'terrainType'} = getTerrainData(@$center); 
+		$tdata{'area'} = $parea  ;
+	$terrainData{$$pref{'name'}} = \%tdata ;
 	#print " centroid=$$cx[$$countyAoiCtr],$$cy[$$countyAoiCtr]\n" ; 
-	my %aoihash = ( 'id' => $$pref{'id'} , 'polygon' => \$nxtaoi ) ;
+	my %aoihash = ( 'name' => $$pref{'name'} , 'polygon' => \$nxtaoi ) ;
 	push @$listofAois,\%aoihash ;
 	$totalArea += $parea ;
 	$$countyAoiCtr++ ;
@@ -179,9 +190,21 @@ my (@clusters,@clustercenters,$numclusters,@tclusters,$nc) ;
 $nc = $numclusters = 0;
 foreach my $cn (keys %countydata)
 {
-	print "Trying K-means clustering for $cn \n" ;
-	($clusters[$nc],$clustercenters[$nc],$tclusters[$nc]) = 
-		aoiClusters($countydata{$cn}{'aois'},$countydata{$cn}{'cx'},$countydata{$cn}{'cy'},$totalArea) ;
+	my @aois = @{$countydata{$cn}{'aois'}} ;
+	if ($opt_K eq "Kmeans" && (@aois > 9)) {
+		print "Trying K-means clustering for $cn \n" ;
+		($clusters[$nc],$clustercenters[$nc],$tclusters[$nc]) = 
+			aoiClustersKmeans($countydata{$cn}{'aois'},$countydata{$cn}{'cx'},$countydata{$cn}{'cy'},$totalArea) ;
+	}
+	#elsif ($opt_K eq "proximity") {
+	else {
+		print "Trying Proximity clustering for $cn \n" ;
+		($clusters[$nc],$tclusters[$nc]) = 
+			aoiClustersProximity($countydata{$cn}{'aois'},$countydata{$cn}{'cx'},$countydata{$cn}{'cy'},$totalArea) ;
+	}
+	#	else {
+	#	die "Unknown clustering method $opt_K\n" ;
+	#}
 	$countydata{$cn}{'clusterMap'} = $clusters[$nc] ;
 	$numclusters += $tclusters[$nc] ;
 	print "$tclusters[$nc] clusters returned (total=$numclusters)\n" ;
@@ -235,7 +258,7 @@ foreach my $cn (keys %countydata)
 			my $pgon = 0 ;
 			my $preflist = $countydata{$cn}{'aois'};
 			foreach my $pref (@$preflist) {
-				if ($$pref{'id'} eq $pk) {
+				if ($$pref{'name'} eq $pk) {
 					$pgon = $$pref{'polygon'} ;
 					last ;
 				}
@@ -249,15 +272,15 @@ foreach my $cn (keys %countydata)
 			splice @clusterpoints,@clusterpoints,0,@points ;
 			push @plist,$$pgon ;
 		}
-		#my $clusterpoly = chainHull_2D @clusterpoints ;
+		my $badclusterpoly = chainHull_2D @clusterpoints ;
 		my $clusterpoly = Math::Polygon->new(cvxPolygon::combinePolygonsConvex(\@plist)) ;
 		printf "Convex operation returns polygon with %d points, closed=%d\n",$clusterpoly->nrPoints(),$clusterpoly->isClosed() ;
 		my %options ;
 		$options{''} = 1 ;
 		@clusterpoints = $clusterpoly->points() ;
 		my %cinf ;
-		$cinf{'id'} = $newc;
-		$cinf{'poly'} = $clusterpoly ;
+		$cinf{'name'} = $newc;
+		$cinf{'poly'} = $badclusterpoly ;
 		push @{$countydata{$cn}{'clusters'}} , \%cinf ;
 	
 		my $description = makeNewDescription("Cluster $newcn, county $cn") ;
@@ -270,8 +293,8 @@ foreach my $cn (keys %countydata)
 }
 #Assign styles to placemarks
 foreach my $pref (@placemarkhashes) {
-	#my $styleid = findInClusters($$pref{'id'},$clusters) ;
-	my $styleid = $terrainData{$$pref{'id'}};
+	#my $styleid = findInClusters($$pref{'name'},$clusters) ;
+	my $styleid = $terrainData{$$pref{'name'}}{'terrainType'};
 	next unless ($styleid != -1) ;
 
 	$$pref{'styleUrl'} = '#TerrainStyle' . sprintf("%.3d",$styleid%$nc) ;
@@ -292,12 +315,12 @@ elsif ($opt_k =~ /.*[.]kml$/) {
 else {
 	print "Don't understand file type $opt_k\n" ;
 }
-printReport(\%countydata,$opt_r) ;
+printReport(\%countydata,$opt_r,\%terrainData) ;
 exit(1) ;
 
 
 use Algorithm::KMeans ;
-sub aoiClusters{
+sub aoiClustersKmeans{
 	my $aoisref = shift ;
 	my $cxref = shift ;
 	my $cyref = shift ;
@@ -307,16 +330,16 @@ sub aoiClusters{
 	my $kmin = int($tA/2000) ;
 	my $kmax = int(sqrt(@$aoisref/2)) ;
 	print "Initial estimate kmax=$kmax kmin=$kmin\n" ; 
-	if (@$aoisref < 9) {
-		my @list ;
-		my @center = ($$cxref[0],$$cyref[0]) ;
-		for (my $i = 0 ; $i <@$aoisref; $i++) {
-			push @list, ${$$aoisref[$i]}{'id'} ;
-		}
-		my %sc ;
-		$sc{'cluster0'} = \@list;
-		return (\%sc, \@center,1) ;
-	}
+	#	if (@$aoisref < 9) {
+	#	my @list ;
+	#	my @center = ($$cxref[0],$$cyref[0]) ;
+	#	for (my $i = 0 ; $i <@$aoisref; $i++) {
+	#		push @list, ${$$aoisref[$i]}{'name'} ;
+	#	}
+	#	my %sc ;
+	#	$sc{'cluster0'} = \@list;
+	#	return (\%sc, \@center,1) ;
+	#}
 
 
 	while ($kmax <= $kmin && $kmin > 4) {
@@ -329,7 +352,7 @@ sub aoiClusters{
 		$kmax = $kmin = int(sqrt(@$aoisref/2)) ;
 	open (FTMP, ">",$datafile) || die "Can't open $datafile for creating cluster list\n" ;
 	for (my $aoi=0 ; $aoi < @$aoisref; $aoi++) {
-		printf FTMP "%s,%.6g,%.6g\n", ${$$aoisref[$aoi]}{'id'}, $$cxref[$aoi], $$cyref[$aoi] ;
+		printf FTMP "%s,%.6g,%.6g\n", ${$$aoisref[$aoi]}{'name'}, $$cxref[$aoi], $$cyref[$aoi] ;
 	}
 	close (FTMP) ;
 	print "Trying K-means with $kmax,$kmin clusters\n" ;
@@ -353,6 +376,32 @@ sub aoiClusters{
 	printf "Generated %d clusters\n",$nc;
 	return ($clusters,$clusterCenters,$nc) ;
 	
+}
+
+use proximityCluster ;
+sub aoiClustersProximity{
+	my $aoisref = shift ;
+	my @boxes ;
+	for (my $aoi=0 ; $aoi < @$aoisref; $aoi++) {
+		my %box ;
+		$box{'id'} = ${$$aoisref[$aoi]}{'name'} ;
+		my $poly =  $$aoisref[$aoi]{'polygon'} ;
+		my $cnt = $$poly->centroid ;
+		$box{'centroid'} = $cnt ;
+		$box{'area'} = $$poly->area ;
+		print Dumper %box ;
+		printf "Polygon of centroid %.4g,%.4g, area %.4g\n", $$cnt[0], $$cnt[1], $$poly->area ;
+		push @boxes,\%box ;
+	}
+	my $nb = @boxes ;
+	print "Produced array of size $nb boxes\n" ;
+	my %clusters = proximityCluster::proximityCluster(\@boxes,10) ;
+	my $nc = 0 ;
+	foreach my $cluster_id (sort keys %clusters) {
+		print "\n$cluster_id   =>   @{$clusters{$cluster_id}}\n";
+		$nc++ ;
+	}
+	return \%clusters,$nc ;
 }
 
 sub findInClusters {
@@ -398,7 +447,7 @@ sub getCounty{
 	my $clist = shift ;
 	my $cname = "" ;
 	my $fnd = 0 ;
-	if ($dstr =~ m@<td>county</td>\s*<td>([A-Za-z]+)</td>@s) {
+	if ($dstr =~ m@<td>county</td>\s*<td>([^<]+)</td>@s) {
 		$cname = $1 ;
 		for my $ce (@$clist) {
 			if ($ce eq $cname) {
@@ -413,31 +462,55 @@ sub getCounty{
 	
 sub getTerrainData{
 	my @coords = shift ;
-	my $brown = int($coords[0]+$coords[1]) ;
+	my $brown = int(100.0*($coords[0]+$coords[1])) ;
 	return $brown%@browncolors ;
 }
 
+my @terrainDensity = (21, 22, 23, 24, 25, 26, 27, 28) ;
 sub printReport{
 	my $cdata = shift ;
 	my $ofile = shift ;
+	my $tdata = shift ;
+	#	print Dumper $tdata ;
+	#return 0;
 	open (FREP,">", "$ofile") || die "Can't open $ofile for writing\n" ; 
-	print FREP "County,Cluster id,Area (sq.miles),Number of Towers,List of CBGs\n" ;
-	for my $cname (keys %$cdata) {
+	print FREP "County,Cluster id,Area (sq.miles), CBG ARea, %Coverage, Number of Towers,List of CBGs\n" ;
+	for my $cname (sort keys %$cdata) {
 		my $clist = $$cdata{$cname}{'clusters'} ;
 		print "Processing county $cname\n" ;
 		my $clusterlist = $$cdata{$cname}{'clusterMap'} ;
+		my $listofAois = $$cdata{$cname}{'aois'} ;
+		my %aoiArea ;
+		my %towers;
+		for my $aoi (@$listofAois) {
+			print "Name $$aoi{'name'}..." ;
+			my $poly = $$aoi{'polygon'} ;
+			$aoiArea{$$aoi{'name'}} = $$poly->area * $milesperlat * $milesperlong ; 
+			printf "area = %.4g..", $$poly->area ;
+			my $terrain = $$tdata{$$aoi{'name'}}{'terrainType'} ;
+			my $cellDensity = $terrain+20 ;
+			print "terrain=$terrain density=$cellDensity\n" ;
+			my $aoiTower = int($aoiArea{$$aoi{'name'}}/$cellDensity) ;
+			if ($aoiTower < 1) { $aoiTower = 1;}
+			$towers{$$aoi{'name'}} += $aoiTower ;
+		}
+
 		for my $cid (@$clist) {
 			my $clusterarea = $milesperlat*$milesperlong*$$cid{'poly'}->area() ;
-			my $twrs = int($clusterarea/20.0) ;
-			printf FREP "%.10s,%10s,%.6g,%d,",$cname,$$cid{'id'},$clusterarea,$twrs;
-			my $cbglist = $$clusterlist{$$cid{'id'}} ;
+			my $ostring = "" ;
+			my $cbgClusterArea = 0 ; 
+			my $twrs = 0;
+			my $cbglist = $$clusterlist{$$cid{'name'}} ;
 			for my $cbg (@$cbglist) {
-				print FREP "$cbg: ";
+				$ostring .= "$cbg:" ;
+				$cbgClusterArea += $aoiArea{$cbg} ;
+				$twrs += $towers{$cbg} ;
 			}
-			print FREP "\n" ;
+			my $pc = int(100.0*($cbgClusterArea/$clusterarea)) ; 
+			printf FREP "%.10s,%10s,%.6g,%.4g,%d%%,%d,",$cname,$$cid{'name'},$clusterarea,$cbgClusterArea,$pc,$twrs;
+			print FREP "$ostring\n" ;
 		}
 	}
 	close(FREP) ;
 }
-
 
