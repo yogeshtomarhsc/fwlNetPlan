@@ -14,6 +14,7 @@ use cvxPolygon;
 $Data::Dumper::Indent = 1;
 my $milesperlat = 69 ;
 my $milesperlong = 54.6 ; 
+my $prompt = 1;
 
 our $opt_f = "" ;
 our $df = "kml.dat" ;
@@ -22,8 +23,9 @@ our $opt_k = "" ;
 our $opt_r = "sampleReport.csv" ;
 our $opt_K = "Kmeans" ;
 our $opt_t = "" ;
-getopts('f:k:r:K:t:h') ;
+getopts('f:k:r:K:t:hp') ;
 our $opt_h ;
+our $opt_p = 0 ;
 if ($opt_h) {
 	print "Usage:kmz.pl -f <input kmz file> -k <output kmz file> -r <report file> -t <terrain db> -K <Kmeans/proximity>\n";
 	exit(1) ;
@@ -45,9 +47,7 @@ else {
 			} ;
 	}
 }
-if ($opt_r) {
-	printf "Dumping report to %s\n",$opt_r ;
-}
+if ($opt_p) { $prompt = 0 ; }
 
 srand($$) ;
 
@@ -198,9 +198,14 @@ foreach my $cn (keys %countydata)
 	}
 	#elsif ($opt_K eq "proximity") {
 	else {
-		print "Trying Proximity clustering for $cn \n" ;
+		my $thresh = 5 ;
+		($opt_K =~ /proximity([.0-9]+)/) && do {
+			$thresh = $1 ; 
+		} ;
+		print "Trying Proximity clustering for $cn ($thresh) \n" ;
 		($clusters[$nc],$tclusters[$nc]) = 
-			aoiClustersProximity($countydata{$cn}{'aois'},$countydata{$cn}{'cx'},$countydata{$cn}{'cy'},$totalArea) ;
+			aoiClustersProximity($countydata{$cn}{'aois'},$countydata{$cn}{'cx'},$countydata{$cn}{'cy'},$totalArea, $thresh) ;
+			die unless (prompt(\$prompt) == 1) ;
 	}
 	#	else {
 	#	die "Unknown clustering method $opt_K\n" ;
@@ -253,10 +258,12 @@ foreach my $cn (keys %countydata)
 		my @clusterpoints ;
 		my @clist = @{$clusters[$i]->{$newc}} ;
 		my @plist ;
+		my $cliststring = "" ;
 		print "newc = $newc newcn = $newcn\n" ;
 		for my $pk (@clist){
 			my $pgon = 0 ;
 			my $preflist = $countydata{$cn}{'aois'};
+			$cliststring .= sprintf("%s\n",$pk) ;
 			foreach my $pref (@$preflist) {
 				if ($$pref{'name'} eq $pk) {
 					$pgon = $$pref{'polygon'} ;
@@ -283,7 +290,8 @@ foreach my $cn (keys %countydata)
 		$cinf{'poly'} = $badclusterpoly ;
 		push @{$countydata{$cn}{'clusters'}} , \%cinf ;
 	
-		my $description = makeNewDescription("Cluster $newcn, county $cn") ;
+		
+		my $description = makeNewDescription("Cluster $newcn, county $cn List of CBGs:$cliststring") ;
 		my $cstyle = sprintf("ClusterStyle%.3d",$newcn%@colors) ;
 		my $newcluster = makeNewCluster($clusterpoly,\%pmlistentry,$newcn,$cstyle,$description) ;
 		$newclusters[$newcn - $oldnc] = $newcluster ;
@@ -381,6 +389,7 @@ sub aoiClustersKmeans{
 use proximityCluster ;
 sub aoiClustersProximity{
 	my $aoisref = shift ;
+	my $thresh = shift ;
 	my @boxes ;
 	for (my $aoi=0 ; $aoi < @$aoisref; $aoi++) {
 		my %box ;
@@ -388,20 +397,33 @@ sub aoiClustersProximity{
 		my $poly =  $$aoisref[$aoi]{'polygon'} ;
 		my $cnt = $$poly->centroid ;
 		$box{'centroid'} = $cnt ;
-		$box{'area'} = $$poly->area ;
+		$box{'area'} = $$poly->area * $milesperlat * $milesperlong ;
 		print Dumper %box ;
 		printf "Polygon of centroid %.4g,%.4g, area %.4g\n", $$cnt[0], $$cnt[1], $$poly->area ;
 		push @boxes,\%box ;
 	}
 	my $nb = @boxes ;
 	print "Produced array of size $nb boxes\n" ;
-	my %clusters = proximityCluster::proximityCluster(\@boxes,10) ;
+	my %clusters = proximityCluster::proximityCluster(\@boxes,$thresh) ;
 	my $nc = 0 ;
 	foreach my $cluster_id (sort keys %clusters) {
 		print "\n$cluster_id   =>   @{$clusters{$cluster_id}}\n";
 		$nc++ ;
 	}
 	return \%clusters,$nc ;
+}
+
+sub prompt{
+	my $continue = shift ;
+	if ($$continue == 1) { return 1 ; }
+	else {
+		print ("Continue? [Y/n/c]\n") ;
+		$_ = <> ;
+		chomp ;
+		if ($_ eq 'c') { $$continue = 1 ; return 1 ; }
+		elsif ($_ eq 'n') { return 0 ; }
+		else { return 1 ; }
+	}
 }
 
 sub findInClusters {
@@ -475,21 +497,22 @@ sub printReport{
 	#return 0;
 	open (FREP,">", "$ofile") || die "Can't open $ofile for writing\n" ; 
 	print FREP "County,Cluster id,Area (sq.miles), CBG ARea, %Coverage, Number of Towers,List of CBGs\n" ;
+	print "Processing counties..." ;
 	for my $cname (sort keys %$cdata) {
 		my $clist = $$cdata{$cname}{'clusters'} ;
-		print "Processing county $cname\n" ;
+		print "[$cname] " ;
 		my $clusterlist = $$cdata{$cname}{'clusterMap'} ;
 		my $listofAois = $$cdata{$cname}{'aois'} ;
 		my %aoiArea ;
 		my %towers;
 		for my $aoi (@$listofAois) {
-			print "Name $$aoi{'name'}..." ;
+			#print "Name $$aoi{'name'}..." ;
 			my $poly = $$aoi{'polygon'} ;
 			$aoiArea{$$aoi{'name'}} = $$poly->area * $milesperlat * $milesperlong ; 
-			printf "area = %.4g..", $$poly->area ;
+			#printf "area = %.4g..", $$poly->area ;
 			my $terrain = $$tdata{$$aoi{'name'}}{'terrainType'} ;
 			my $cellDensity = $terrain+20 ;
-			print "terrain=$terrain density=$cellDensity\n" ;
+			#print "terrain=$terrain density=$cellDensity\n" ;
 			my $aoiTower = int($aoiArea{$$aoi{'name'}}/$cellDensity) ;
 			if ($aoiTower < 1) { $aoiTower = 1;}
 			$towers{$$aoi{'name'}} += $aoiTower ;
@@ -511,6 +534,7 @@ sub printReport{
 			print FREP "$ostring\n" ;
 		}
 	}
+	print "\n" ;
 	close(FREP) ;
 }
 

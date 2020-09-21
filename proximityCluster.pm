@@ -29,14 +29,13 @@ sub proximityCluster {
 			my $num = @$boxes ;
 			#my $closest = int(rand($num)) ;
 			print "\tClosest is ${$$boxes[$closest]}{'id'}\n" ;
-			last unless (canAddToCluster($cluster,$$boxes[$closest],1.1)) ;
+			last unless (canAddToCluster($cluster,$$boxes[$closest],$thresh)) ;
 			print "Adding \n" ;
 			moveToCluster($cluster,$closest,$boxes) ;
 		}
 		my $bleft = @$boxes ;
 		print "Finished for this cluster:$bleft\n" ;
 	} while (@$boxes) ;
-	#	print Dumper @clusters ;
 	my %rclusters ;
 	for my $cl (@clusters) {
 		my $mlist = $$cl{'members'} ;
@@ -47,7 +46,6 @@ sub proximityCluster {
 		my $cid = $$cl{'id'} ;
 		$rclusters{$cid} = \@idlist ;
 	}
-		print Dumper %rclusters ;
 	return %rclusters ;
 }
 
@@ -100,7 +98,7 @@ sub canAddToCluster {
 	printf "scatter: New weighted centroid:%.4g,%.4g->\n",$$newwt[0],$$newwt[1] ;
 	#splice @testcluster,-1 ;
 	my $newscatter = scatter(\@testcluster,$newwt) ;
-	printf "scatter: new scatter:%.4g, old scatter:%.4g\n",$newscatter,$$cluster{'scatter'} ;
+	printf "scatter: new scatter:%.4g, old scatter:%.4g thresh=%.4g\n",$newscatter,$$cluster{'scatter'},$thresh ;
 	my $oldscatter = $$cluster{'scatter'} ;
 	if ($newscatter < $thresh) {
 		print "can ADD solitary YES\n" ;
@@ -108,7 +106,6 @@ sub canAddToCluster {
 	}
 	elsif ($newscatter < $oldscatter) {
 		print "can Add YES\n" ;
-		print Dumper $box ;
 		return 1 ;
 	}
 	else {
@@ -152,7 +149,6 @@ sub moveToCluster{
 	my $cid = shift;
 	my $boxes = shift ;
 	print "Moving $cid to the existing cluster $$cluster{'id'} \n",$cid ;
-	print Dumper $$boxes[$cid] ;
 	push @{$$cluster{'members'}} , $$boxes[$cid] ;
 	$$cluster{'centroid'} = weightedCentroid($$cluster{'members'}) ;
 	$$cluster{'scatter'} = scatter($$cluster{'members'},$$cluster{'centroid'}) ;
@@ -193,8 +189,8 @@ sub weightedCentroid {
 		$tw += $area ;
 		$np++ ;
 	}
-	$txy[0] = $txy[0]/($np * $tw) ;
-	$txy[1] = $txy[1]/($np * $tw) ;
+	$txy[0] = $txy[0]/($tw) ;
+	$txy[1] = $txy[1]/($tw) ;
 	printf "Weighted Centroid:%.4g %.4g\n",$txy[0],$txy[1] ;
 	return \@txy ;
 }
@@ -213,14 +209,14 @@ sub scatter {
 		my $ccent = $$member{'centroid'} ;
 		my $area = $$member{'area'} ;
 		$dist[$i] = ptDistance($ccent,$centroid) ;
+		printf "area = %.4g", $area ;
 		$tarea += $area ;
-		#/sqrt{area} ;
 		$tdist += $dist[$i] ;
 	}
 	print "tdist=$tdist: i=$i tarea=$tarea " ;
 	if ($i == 0) { print "\n" ; return 100 ; }
 	else { 
-		my $sctr = $tdist/($i*$tarea);
+		my $sctr = $tdist/(sqrt($tarea));
 		printf "Final scatter =%.4g\n",$sctr;
 		return $sctr;
 	} 
