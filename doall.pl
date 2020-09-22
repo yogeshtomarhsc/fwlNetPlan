@@ -23,10 +23,10 @@ while (my $fname = readdir(DIR)) {
 	next unless ($fname =~ m@^([A-Z]+).kmz$@);
 	my $ofile = $opt_D . $1."mod.kmz" ;
 	my $rfile = $opt_D . $1."report.csv" ;
+	my $tfile = $opt_D . $1."terrain.csv" ;
 	#print "Executing $fname...$ofile\n" ;
-	my $estring = "./kmz.pl -f ". $opt_d . $fname . " -k " . $ofile . " -r " . $rfile . " -K Kmeans";
+	my $estring = "./kmz.pl -f ". $opt_d . $fname . " -k " . $ofile . " -r " . $rfile . " -K proximity7.5";
+	$estring .= " -t $tfile" ;
 	print "$estring\n" ;
-	system($estring) ;
+	#	system($estring) ;
 }
-	
-

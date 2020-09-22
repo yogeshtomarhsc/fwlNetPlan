@@ -10,6 +10,7 @@ use XML::LibXML ;
 use Math::Polygon ;
 use KMZ ;
 use cvxPolygon;
+use terraindB ;
 
 $Data::Dumper::Indent = 1;
 my $milesperlat = 69 ;
@@ -17,15 +18,14 @@ my $milesperlong = 54.6 ;
 my $prompt = 1;
 
 our $opt_f = "" ;
-our $df = "kml.dat" ;
-my $odf = "kmlmod.dat" ;
 our $opt_k = "" ;
 our $opt_r = "sampleReport.csv" ;
 our $opt_K = "Kmeans" ;
 our $opt_t = "" ;
-getopts('f:k:r:K:t:hp') ;
 our $opt_h ;
 our $opt_p = 0 ;
+our $opt_t = "" ;
+getopts('f:k:r:K:t:hp') ;
 if ($opt_h) {
 	print "Usage:kmz.pl -f <input kmz file> -k <output kmz file> -r <report file> -t <terrain db> -K <Kmeans/proximity>\n";
 	exit(1) ;
@@ -34,6 +34,9 @@ my @colors = (0xffff0000, 0xff00ff00, 0xff0000ff, 0xffaa3333, 0xff33aa22,0xff00c
 my @browncolors = (0xfffff8dc, 0xffffe4c4, 0xfff5deb3, 0xffd2b48c, 0xff8c8f8f,0xfff4a460, 0xffdaa520, 0xa0522d) ;
 my %pmlistentry ;
 
+#
+# We need a file to load
+#
 if ($opt_f eq "") {
 	die "Usage: kmz.pl -f <input file> [-c to cluster] [-k <output kml file>]\n" ;
 }
@@ -47,36 +50,35 @@ else {
 			} ;
 	}
 }
+#
+# See if terrain db exists...in which case it gets loaded. Else, we will have to write to it
+#
+
+my %terraindB ;
+my $tdbAvail = 0;
+if (($opt_t ne "") && (-e $opt_t) && (terraindB::loadTerrainDB($opt_t,\%terraindB) == 1) )
+{
+	print "Loaded Terrain DB from $opt_t\n" ;
+	$tdbAvail = 1 ;
+}
+
 if ($opt_p) { $prompt = 0 ; }
 
 srand($$) ;
 
-
-
-#my ($ns,$data) = Geo::KML->from($opt_f) ;
+# 
+# Process the file and load placemarks. Each Placemark is a CBG
+# The county information is in the description
+#
+print "Opening $opt_f for processing...\n" ;
 my ($ns,$data) = Geo::KML->readKML($opt_f) ;
-# print the top level entries of the hash
 my $dhash = %$data{'Document'} ;
-for (keys %$dhash) {
-	print "Key $_: Value $$dhash{$_}\n" ;
-}
+#for (keys %$dhash) {
+#	print "Key $_: Value $$dhash{$_}\n" ;
+#}
 my $featuregroup = $$dhash{'AbstractFeatureGroup'} ;
 my $stylegroup = $$dhash{'AbstractStyleSelectorGroup'} ;
 
-close(F2) ;
-#print "Writing to kmz file $opt_k\n" ;
-#my $opkml = Geo::KML->new(version => '2.2.0') ;
-#$opkml->writeKML($data,$opt_k) ;
-
-#defined $ns or die "don't understand file content\n";
-#print "$ns\n" ;
-
-#my $dom = XML::LibXML->load_xml(string => $data);
-#foreach my $title ($dom->findnodes('coordinates')) {
-#    say $title->to_literal();
-#}
-#
-#
 my $EPS = 0.001 ;
 my $totalArea = 0 ;
 my $aoiCtr=0;
@@ -117,8 +119,9 @@ use Math::Polygon::Convex qw/chainHull_2D/ ;
 my @counties ;
 my %countydata ;
 my %terrainData ;
-if ($opt_h) {
-}
+# 
+# Now convert placemarks into polygons
+#
 foreach my $pref (@placemarkhashes) {
 	my $countyAoiCtr = 0;
 	my $geometries = $$pref{'MultiGeometry'}{'AbstractGeometryGroup'} ;
@@ -167,9 +170,22 @@ foreach my $pref (@placemarkhashes) {
 	my $center =  $nxtaoi->centroid() ;
 	($$cx[$$countyAoiCtr],$$cy[$$countyAoiCtr]) = @$center ;
 	my %tdata ; 
-		$tdata{'terrainType'} = getTerrainData(@$center); 
+		$tdata{'terrainType'} = getTerrainCode(@$center,$$pref{'name'},$tdbAvail,\%terraindB); 
 		$tdata{'area'} = $parea  ;
 	$terrainData{$$pref{'name'}} = \%tdata ;
+	if (!$tdbAvail) {
+		my %tdbEntry ;
+		my (@se,@nw) ;
+		($nw[0],$se[1],$se[0],$nw[1]) = $nxtaoi->bbox ;
+		$tdbEntry{'county'} =  $county ;
+		$tdbEntry{'SouthEast'} = \@se ;
+		$tdbEntry{'NorthWest'} = \@nw ;
+		$tdbEntry{'centroid'} = $center ;
+		$tdbEntry{'area'} = $parea ;
+		$terraindB{$$pref{'name'}} = \%tdbEntry ;
+	}
+		
+		
 	#print " centroid=$$cx[$$countyAoiCtr],$$cy[$$countyAoiCtr]\n" ; 
 	my %aoihash = ( 'name' => $$pref{'name'} , 'polygon' => \$nxtaoi ) ;
 	push @$listofAois,\%aoihash ;
@@ -184,7 +200,13 @@ for my $cname (keys %countydata) {
 	print "$cname -> $np ",
 }
 print "\n" ;
+if (!$tdbAvail && $opt_t ne "") {
+	terraindB::printTerrainDB($opt_t, \%terraindB) ;
+}
 
+#
+# Clustering
+#
 
 my (@clusters,@clustercenters,$numclusters,@tclusters,$nc) ;
 $nc = $numclusters = 0;
@@ -230,6 +252,9 @@ foreach my $stylehash (@$stylegroup) {
 print "Found $nc styles\n" ;
 my $oldnc = $nc ;
 $nc = 0;
+# 
+# Create new styles, to be allocated randomly to clusters
+#
 for ($nc = 0; $nc<@colors; $nc++){
 	print "Adding new style $nc\n" ;
 	my %newstyle ;
@@ -237,6 +262,9 @@ for ($nc = 0; $nc<@colors; $nc++){
 	$newstyle{'Style'} = \%newst ;
 	push @$stylegroup, \%newstyle ;
 }
+# 
+# Create new terrain styles, to be allocated randomly to clusters
+#
 for ($nc = 0; $nc<@browncolors; $nc++){
 	print "Adding new style $nc\n" ;
 	my %newstyle ;
@@ -246,10 +274,10 @@ for ($nc = 0; $nc<@browncolors; $nc++){
 }
 
 my $newcn = $oldnc ;
-#foreach my $cluster_id (sort keys %{$clusters}) {
-#		$nc++ ;
-	#	print "\n$cluster_id   =>   @{$clusters->{$cluster_id}}\n";
 
+#
+# Now each cluster is enclosed in a single, convex polygon
+#
 my @newclusters ;
 my $i = 0;
 foreach my $cn (keys %countydata)
@@ -299,7 +327,9 @@ foreach my $cn (keys %countydata)
 	}
 	$i++ ;
 }
-#Assign styles to placemarks
+#
+# Assign styles to placemarks
+#
 foreach my $pref (@placemarkhashes) {
 	#my $styleid = findInClusters($$pref{'name'},$clusters) ;
 	my $styleid = $terrainData{$$pref{'name'}}{'terrainType'};
@@ -308,9 +338,12 @@ foreach my $pref (@placemarkhashes) {
 	$$pref{'styleUrl'} = '#TerrainStyle' . sprintf("%.3d",$styleid%$nc) ;
 #		print "Changing style to $$pref{'styleUrl'}\n" ;
 }
-	
 splice @{$featureref[0]},@{$featureref[0]},0,@newclusters ;
 
+# 
+# Write back to output kml/kmz file. Note that for kmz file you have to set
+# zip option, its not automatic
+#
 my $opkml = Geo::KML->new(version => '2.2.0') ;
 if ($opt_k =~ /.*[.]kmz$/) {
 	print "Writing to kmz file $opt_k\n" ;
@@ -323,6 +356,9 @@ elsif ($opt_k =~ /.*[.]kml$/) {
 else {
 	print "Don't understand file type $opt_k\n" ;
 }
+#
+# printReport
+#
 printReport(\%countydata,$opt_r,\%terrainData) ;
 exit(1) ;
 
@@ -398,7 +434,6 @@ sub aoiClustersProximity{
 		my $cnt = $$poly->centroid ;
 		$box{'centroid'} = $cnt ;
 		$box{'area'} = $$poly->area * $milesperlat * $milesperlong ;
-		print Dumper %box ;
 		printf "Polygon of centroid %.4g,%.4g, area %.4g\n", $$cnt[0], $$cnt[1], $$poly->area ;
 		push @boxes,\%box ;
 	}
@@ -482,11 +517,6 @@ sub getCounty{
 	return ($cname,$fnd) ;
 }
 	
-sub getTerrainData{
-	my @coords = shift ;
-	my $brown = int(100.0*($coords[0]+$coords[1])) ;
-	return $brown%@browncolors ;
-}
 
 my @terrainDensity = (21, 22, 23, 24, 25, 26, 27, 28) ;
 sub printReport{

@@ -208,15 +208,15 @@ sub scatter {
 		my $member = $memberlist[$i] ;
 		my $ccent = $$member{'centroid'} ;
 		my $area = $$member{'area'} ;
-		$dist[$i] = ptDistance($ccent,$centroid) ;
+		$dist[$i] = ptDistance($ccent,$centroid) - sqrt($area*114/355.0) ;
 		printf "area = %.4g", $area ;
+		if ($dist[$i] > 0) { $tdist += $dist[$i] ; }
 		$tarea += $area ;
-		$tdist += $dist[$i] ;
 	}
 	print "tdist=$tdist: i=$i tarea=$tarea " ;
-	if ($i == 0) { print "\n" ; return 100 ; }
+	if ($i == 0) { print "\n" ; return 0 ; }
 	else { 
-		my $sctr = $tdist/(sqrt($tarea));
+		my $sctr = $tdist/$i;
 		printf "Final scatter =%.4g\n",$sctr;
 		return $sctr;
 	} 

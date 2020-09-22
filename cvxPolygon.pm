@@ -47,7 +47,7 @@ sub combinePolygonsConvex{
 	$centx = $centy =0 ;
 	for my $j (@outsidepoints) { $centx += $$j[0] ; $centy += $$j[1] ; }
 	$centx /= $ptcnt ; $centy /= $ptcnt;
-	print "Centroid = $centx, $centy\n" ;
+	#print "Centroid = $centx, $centy\n" ;
 	for (my $j=0; $j<@outsidepoints; $j++) {
 		my $pt = $outsidepoints[$j] ; 
 		${$pt}[0] -= $centx ;${$pt}[1] -= $centy;
@@ -64,14 +64,14 @@ sub combinePolygonsConvex{
 		${$pt}[0] += $centx ;${$pt}[1] += $centy;
 	}
 	makeClosed(\@sortedpoints) ;
-	printPointList(\@sortedpoints,"After sorting",0) ;
+	#printPointList(\@sortedpoints,"After sorting",0) ;
 	
 	#Test for convexity
 	my $cvx = 1 ;
 	do {  
 		$cvx = makeConvexPolygon(\@sortedpoints) ;
 	} while ($cvx != 0) ;
-	printPointList(\@sortedpoints,"After convexing",0) ;
+	#printPointList(\@sortedpoints,"After convexing",0) ;
 	makeClosed(\@sortedpoints) ;
 	return @sortedpoints;
 }
