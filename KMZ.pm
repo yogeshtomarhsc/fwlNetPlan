@@ -5,7 +5,7 @@ require Exporter ;
 use strict;
 
 our @ISA = qw(Exporter);
-our @EXPORT = qw(makeNewOutlineStyle makeNewSolidStyle makeNewCluster makeNewPolygon makeNewDescription);
+our @EXPORT = qw(makeNewOutlineStyle makeNewSolidStyle makeNewCluster makeNewPolygon makeNewDescription makeNewFolder);
 
 
 sub polygonToArray {
@@ -68,6 +68,7 @@ sub makeNewSolidStyle{
 	%newst ;
 }
 sub makeNewCluster{
+	my $county = shift ;
 	my $clusterpoly = shift ;
 	my $template = shift ;
 	my $newcn = shift ;
@@ -78,7 +79,7 @@ sub makeNewCluster{
 	my %placemark ;
 	my %polygon ;
 	my @polygons ;
-	$placemark{'name'} = sprintf "Cluster_%d",$newcn ;
+	$placemark{'name'} = sprintf "%s/Cluster_%d",$county,$newcn ;
 	$placemark{'styleUrl'} = "#".$styleid ;
 	$placemark{'description'} = $desc; 
 	$placemark{'id'} = sprintf("ClusterID_%d",$newcn)  ;
@@ -129,4 +130,22 @@ my $descstring = sprintf <<EODESC
 EODESC
 ;
 return $descstring ;
+}
+
+my $fdrcount = 1 ;
+sub makeNewFolder {
+	my $name = shift ;
+	my $listofplacemarks = shift;
+	my $folder = shift; ;
+	$name =~ tr/\s+// ;
+	$$folder{'name'} = $name ;
+	my $num = @$listofplacemarks ;
+	print "Making folder $name with $num placemarks\n" ;
+	$$folder{'AbstractFeatureGroup'} = $listofplacemarks ;
+        $$folder{ 'id'} = sprintf("FeatureLayer%d",$fdrcount) ; $fdrcount++ ;
+        $$folder{'description'} = $name ;
+	my %snippet ;
+	$snippet{'_'} = '' ;
+	$snippet{'maxLines'} = 2 ;
+	$$folder{'Snippet'} = \%snippet ;
 }

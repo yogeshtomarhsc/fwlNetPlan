@@ -281,10 +281,12 @@ my $newcn = $oldnc ;
 #
 # Now each cluster is enclosed in a single, convex polygon
 #
-my @newclusters ;
 my $i = 0;
+my @newfolders ;
 foreach my $cn (keys %countydata)
 {
+	my @newclusters ;
+	my $ccn = 0 ;
 	foreach my $newc (keys %{$clusters[$i]}) {
 		my @clusterpoints ;
 		my @clist = @{$clusters[$i]->{$newc}} ;
@@ -324,10 +326,17 @@ foreach my $cn (keys %countydata)
 		
 		my $description = makeNewDescription("Cluster $newcn, county $cn List of CBGs:$cliststring") ;
 		my $cstyle = sprintf("ClusterStyle%.3d",$newcn%@colors) ;
-		my $newcluster = makeNewCluster($clusterpoly,\%pmlistentry,$newcn,$cstyle,$description) ;
-		$newclusters[$newcn - $oldnc] = $newcluster ;
-		$newcn++ ; printf("newcn -> $newcn\n") ;
+		my $newcluster = makeNewCluster($cn,$clusterpoly,\%pmlistentry,$ccn,$cstyle,$description) ;
+		#$newclusters[$newcn - $oldnc] = $newcluster ;
+		push @newclusters, $newcluster ;
+		$newcn++ ; $ccn++ ; 
+		#printf("newcn -> $newcn\n") ;
 	}
+	my %newfolder ; 
+	my %foldercontainer ;
+	makeNewFolder($cn,\@newclusters, \%newfolder) ;
+	$foldercontainer{'Folder'} = \%newfolder ;
+	push @newfolders, \%foldercontainer ;
 	$i++ ;
 }
 #
@@ -341,8 +350,20 @@ foreach my $pref (@placemarkhashes) {
 	$$pref{'styleUrl'} = '#TerrainStyle' . sprintf("%.3d",$styleid%$nc) ;
 #		print "Changing style to $$pref{'styleUrl'}\n" ;
 }
-splice @{$featureref[0]},@{$featureref[0]},0,@newclusters ;
+#splice @{$featureref[0]},@{$featureref[0]},0,@newclusters ;
+#splice @$featuregroup, @$featuregroup, @newfolders ;
+for my $fg (@newfolders) {
+	push @$featuregroup, $fg ;
+}
+for my $fg (@$featuregroup) {
+	print "$fg " ;
+}
+print "\n" ;
 
+
+open (ODAT, ">/tmp/odat.txt") || die "Can't open odat.txt for writing\n" ;
+print ODAT Dumper $data ;
+close (ODAT) ;
 # 
 # Write back to output kml/kmz file. Note that for kmz file you have to set
 # zip option, its not automatic
