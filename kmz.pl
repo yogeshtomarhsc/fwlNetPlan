@@ -17,6 +17,7 @@ my $milesperlat = 69 ;
 my $milesperlong = 54.6 ; 
 my $prompt = 1;
 
+
 our $opt_f = "" ;
 our $opt_k = "" ;
 our $opt_r = "sampleReport.csv" ;
@@ -56,11 +57,13 @@ else {
 
 my %terraindB ;
 my $tdbAvail = 0;
-if (($opt_t ne "") && (-e $opt_t) && (terraindB::loadTerrainDB($opt_t,\%terraindB) == 1) )
+my @sbbox ;
+if (($opt_t ne "") && (-e $opt_t) && (terraindB::loadTerrainDB($opt_t,\%terraindB,\@sbbox) == 1) )
 {
 	print "Loaded Terrain DB from $opt_t\n" ;
 	$tdbAvail = 1 ;
 }
+
 
 if ($opt_p) { $prompt = 0 ; }
 
@@ -226,7 +229,7 @@ foreach my $cn (keys %countydata)
 		} ;
 		print "Trying Proximity clustering for $cn ($thresh) \n" ;
 		($clusters[$nc],$tclusters[$nc]) = 
-			aoiClustersProximity($countydata{$cn}{'aois'},$countydata{$cn}{'cx'},$countydata{$cn}{'cy'},$totalArea, $thresh) ;
+			aoiClustersProximity($countydata{$cn}{'aois'},$thresh) ;
 			die unless (prompt(\$prompt) == 1) ;
 	}
 	#	else {
@@ -360,6 +363,10 @@ else {
 # printReport
 #
 printReport(\%countydata,$opt_r,\%terrainData) ;
+#
+# Last step. Dump the state bounding boxes on the screen
+
+printf "State bounding box: xmin=%.8g xmax=%.8g ymin=%.8g ymax=%.8g\n", $sbbox[0], $sbbox[1], $sbbox[2], $sbbox[3] ;
 exit(1) ;
 
 

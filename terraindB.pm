@@ -28,8 +28,12 @@ sub getTerrainCode{
 sub loadTerrainDB {
 	my $tfname = shift ;
 	my $tdb = shift ;
+	my $bbox = shift ;
 	my %keys ;
 	my $tdbentries = 0;
+	my ($sxmin, $sxmax, $symin, $symax) ;
+	$sxmax = $symax = -10000.0 ;
+	$sxmin = $symin = 10000.0 ;
 	print "Entered load Terrain dB:filename = $tfname\n" ;
 	$keys{'cbgid'} =  -1;
 	open (FH, $tfname) || die "Can't open filename $tfname for reading:$!\n" ;
@@ -40,10 +44,10 @@ sub loadTerrainDB {
 		if ($keys{'cbgid'} == -1) {
 			for (my $hdrid = 0; $hdrid < @colhds; $hdrid++) {
 				($colhds[$hdrid] =~ /county/i) && do { $keys{'county'} = $hdrid ; };
-				($colhds[$hdrid] =~ /SE lat/i) && do { $keys{'selat'} = $hdrid ; };
-				($colhds[$hdrid] =~ /SE long/i) && do { $keys{'selong'} = $hdrid ; };
-				($colhds[$hdrid] =~ /NW lat/i) && do { $keys{'nwlat'} = $hdrid ; };
-				($colhds[$hdrid] =~ /NW long/i) && do { $keys{'nwlong'} = $hdrid ; };
+				($colhds[$hdrid] =~ /SE Lat/i) && do { $keys{'selat'} = $hdrid ; };
+				($colhds[$hdrid] =~ /SE Long/i) && do { $keys{'selong'} = $hdrid ; };
+				($colhds[$hdrid] =~ /NW Lat/i) && do { $keys{'nwlat'} = $hdrid ; };
+				($colhds[$hdrid] =~ /NW Long/i) && do { $keys{'nwlong'} = $hdrid ; };
 				($colhds[$hdrid] =~ /cbg id/i) && do { $keys{'cbgid'} = $hdrid ; };
 				($colhds[$hdrid] =~ /terrain\s*code/i) && do { $keys{'terrainCode'} = $hdrid ; };
 			}
@@ -59,6 +63,10 @@ sub loadTerrainDB {
 			my %tdbentry ;
 			next unless defined($colhds[$keys{'terrainCode'}]) ;
 			my $tcode = $colhds[$keys{'terrainCode'}] ;
+			if ($colhds[$keys{'selat'}] < $symin) { $symin = $colhds[$keys{'selat'}] ; }
+			if ($colhds[$keys{'selong'}] > $sxmax) { $sxmax = $colhds[$keys{'selong'}] ; }
+			if ($colhds[$keys{'nwlat'}] > $symax) { $symax = $colhds[$keys{'nwlat'}] ; }
+			if ($colhds[$keys{'nwlong'}] < $sxmin) { $sxmin = $colhds[$keys{'nwlong'}] ; }
 			next if ($tcode =~ /Unknown/i);
 			$tdbentry{'terrainCode'} = $tcode ;
 			$tdbentry{'selat'} = $colhds[$keys{'selat'}] ;
@@ -73,6 +81,10 @@ sub loadTerrainDB {
 	}
 	print "$tdbentries loaded\n" ;
 	close (FH) ;
+	$$bbox[0] = $sxmin ;
+	$$bbox[1] = $sxmax ;
+	$$bbox[2] = $symin ;
+	$$bbox[3] = $symax ;
 	if ($tdbentries > 0) { return 1 ; } 
 	else { return 0 ; }
 }
@@ -89,7 +101,7 @@ sub printTerrainDB {
 		my @nw = @{$$tdb{$tdbentry}{'NorthWest'}} ;
 		print FH "$tdbentry, $$tdb{$tdbentry}{'county'}," ;
 	       	printf FH "%.10g,%.10g,%.10g,%.10g,Unknown\n",
-			$se[0],$se[1], $nw[0],$nw[1] ;
+			$se[1],$se[0], $nw[1],$nw[0] ;
 	}
 	close(FH) ;
 }
