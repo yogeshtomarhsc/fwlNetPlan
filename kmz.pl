@@ -11,6 +11,7 @@ use Math::Polygon ;
 use KMZ ;
 use cvxPolygon;
 use terraindB ;
+use nlcd;
 
 $Data::Dumper::Indent = 1;
 my $milesperlat = 69 ;
@@ -361,6 +362,12 @@ foreach my $cn (keys %countydata)
 		$cinf{'name'} = $newc;
 		$cinf{'poly'} = $badclusterpoly ;
 		push @{$countydata{$cn}{'clusters'}} , \%cinf ;
+		{
+			my %histogram ;
+			my $npts = int($clusterpoly->area()*$milesperlat*$milesperlong) ;
+			print "Calling samplehistogram with $npts points\n" ;
+			nlcd::sampleHistogram($clusterpoly,$npts,\%histogram) ;
+		}
 	
 		
 		my $description = makeNewDescription("Cluster $newcn, county $cn List of CBGs:$cliststring") ;

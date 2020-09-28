@@ -7,9 +7,42 @@ $Data::Dumper::Indent = 1;
 use strict;
 
 our @ISA = qw(Exporter);
-our @EXPORT = qw(codePointList);
+our @EXPORT = qw(codePointList sampleHistogram);
 
 my $tDir = "/home/ggne0015/src/hnsNetPlan/HNSNetworkPlanning/updated_auction_904_kml/srtm/NLCD_2016" ;
+sub sampleHistogram {
+	my $poly = shift ;
+	my $npts = shift ;
+	my $hist = shift ;
+	my @bpoints = $poly->points() ;
+	my $tp = @bpoints ;
+	my ($xrand,$yrand,$arand) ;
+	my (@pts,@codes) ;
+	print "samplehistogram: npts=$npts, vertices=$tp:" ;
+	for (my $i = 0; $i<$npts; $i++) {
+		$xrand = rand($tp) ;
+		$yrand = rand($tp) ;
+		$arand = rand() ;
+		my ($pt1,$pt2,@rp) ;
+		$pt1 = $bpoints[$xrand] ;
+		$pt2 = $bpoints[$yrand] ;
+		$rp[1] = $$pt1[0]*$arand + $$pt2[0]*(1 - $arand) ;
+		$rp[0] = $$pt1[1]*$arand + $$pt2[1]*(1 - $arand) ;
+		printf "%.4g,%.4g ",$rp[0],$rp[1] ;
+		push @pts,\@rp ;
+	}
+	print "\nsampleHistogram: Calling code point list\n" ;
+	codePointList(\@pts,\@codes) ;
+
+	for (my $j=0; $j<@codes;$j++) {
+		$$hist{$codes[$j]}++ ;
+	}
+	for my $keyv (keys %$hist) {
+		print "$keyv=>$$hist{$keyv} " ;
+	}
+	print "\n" ;
+}
+
 sub codePointList {
 	my $pts = shift ;
 	my $codes = shift ;
@@ -67,7 +100,7 @@ sub fileInit {
 	open (FH, $fhdrname) || die "Can't open $fhdrname for reading:$!\n" ;
 	while (<FH>) {
 		my @keyv = split(/\s+/) ;
-		print "$keyv[0] => $keyv[1]\n" ;
+		#print "$keyv[0] => $keyv[1]\n" ;
 		$$fileCont{$keyv[0]} = $keyv[1] ; 
 	}
 	close (FH) ;
@@ -91,7 +124,7 @@ sub readNLCDData {
 	my $long = shift;
 	my $xoffset = int(($long - $$fileContainer{'ULXMAP'})/($$fileContainer{'XDIM'})) ;
 	my $yoffset = int(($$fileContainer{'ULYMAP'} - $lat)/($$fileContainer{'YDIM'})) ;
-	print "$xoffset,$yoffset for $lat,$long\n" ;
+	#print "$xoffset,$yoffset for $lat,$long\n" ;
 	my $offset = $yoffset*$$fileContainer{'TOTALROWBYTES'} ;
 	my ($raw,$alt,$dh) ;
 	$dh = ${$$fileContainer{'fh'}} ;
