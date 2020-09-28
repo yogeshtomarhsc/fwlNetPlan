@@ -26,22 +26,31 @@ our $opt_t = "" ;
 our $opt_h ;
 our $opt_p = 0 ;
 our $opt_t = "" ;
-getopts('f:k:r:K:t:hp') ;
+our $opt_w = "" ;
+getopts('f:k:r:K:t:hw:') ;
 if ($opt_h) {
 	print "Usage:kmz.pl -f <input kmz file> -k <output kmz file> -r <report file> -t <terrain db> -K <Kmeans/proximity>\n";
 	exit(1) ;
 }
 my @colors = (0xffff0000, 0xff00ff00, 0xff0000ff, 0xffaa3333, 0xff33aa22,0xff00cccc, 0xff22cc22, 0xff22aacc) ;
-my @browncolors = (0xfffff8dc, 0xffffe4c4, 0xfff5deb3, 0xffd2b48c, 0xff8c8f8f,0xfff4a460, 0xffdaa520, 0xa0522d) ;
+my @browncolors = (0xfffff8dc, 0xffffe4c4, 0xfff5deb3, 0xffd2b48c, 0xffbc8f8f,0xfff4a460, 0xffdaa520, 0xa0522d) ;
 my %pmlistentry ;
 
 #
 # We need a file to load
 #
+my $statename = "" ;
 if ($opt_f eq "") {
 	die "Usage: kmz.pl -f <input file> [-c to cluster] [-k <output kml file>]\n" ;
 }
 else {
+	if ($opt_f =~ m@.*/([A-Z]{2}).kmz@) {
+		$statename = $1 ;
+	}
+	else {
+		print "No Statename\n" ;
+	}
+
 	open(F1,$opt_f) || die "Can't open file $opt_f\n" ; 
 	if ($opt_k eq "") {
 		($opt_f =~ m@.*([A-Z]{2}).kmz@) && 
@@ -51,6 +60,21 @@ else {
 			} ;
 	}
 }
+my (@whitelist,@wlist) ;
+if ($opt_w) {
+	open (WL,$opt_w) || die "Can't open $opt_w for whitelist reading\n" ;
+	while (<WL>) {
+		if (/(\d+),([A-Z]+)/) {
+			if ($2 eq $statename) { 
+				push @wlist,$1 ;
+			}
+		}
+	}
+	my $nw = @wlist ;
+	@whitelist = sort {$a <=> $b} @wlist ;
+	print "$nw entries loaded\n" ;
+}
+
 #
 # See if terrain db exists...in which case it gets loaded. Else, we will have to write to it
 #
@@ -117,6 +141,7 @@ foreach my $fg (@$featuregroup) {
 }
 print "$placemarks Placemarks found, $featurecnt Features found\n" ;
 
+
 use Math::Polygon::Convex qw/chainHull_2D/ ;
 
 my @counties ;
@@ -129,6 +154,13 @@ foreach my $pref (@placemarkhashes) {
 	my $countyAoiCtr = 0;
 	my $geometries = $$pref{'MultiGeometry'}{'AbstractGeometryGroup'} ;
 	my $description = $$pref{'description'} ;
+	if ($opt_w && !whiteListed(\@whitelist,$$pref{'name'})) {
+		foreach my $geomkey (@$geometries) {
+			undef $$geomkey{'Polygon'}{'altitudeMode'} ;
+		}
+		next ;
+	}
+
 	my ($county,$new) = getCounty($description,\@counties) ;
 	if (!defined %countydata{$county}) {
 		push @counties, $county;
@@ -275,6 +307,13 @@ for ($nc = 0; $nc<@browncolors; $nc++){
 	$newstyle{'Style'} = \%newst ;
 	push @$stylegroup, \%newstyle ;
 }
+#
+# Make a new grey style
+my (%greystyle,%greyst,$greyid) ;
+$greyid = @browncolors ;
+%greyst = makeNewSolidStyle($greyid,0xff708090) ;
+$greystyle{'Style'} = \%greyst ;
+push @$stylegroup,\%greystyle ;
 
 my $newcn = $oldnc ;
 
@@ -344,10 +383,16 @@ foreach my $cn (keys %countydata)
 #
 foreach my $pref (@placemarkhashes) {
 	#my $styleid = findInClusters($$pref{'name'},$clusters) ;
-	my $styleid = $terrainData{$$pref{'name'}}{'terrainType'};
+	my $styleid ;
+	if ($opt_w && !whiteListed(\@whitelist,$$pref{'name'})) {
+		$styleid = $greyid ;
+	}
+	else {
+		$styleid = $terrainData{$$pref{'name'}}{'terrainType'}%$nc;
+	}
 	next unless ($styleid != -1) ;
 
-	$$pref{'styleUrl'} = '#TerrainStyle' . sprintf("%.3d",$styleid%$nc) ;
+	$$pref{'styleUrl'} = '#TerrainStyle' . sprintf("%.3d",$styleid) ;
 #		print "Changing style to $$pref{'styleUrl'}\n" ;
 }
 #splice @{$featureref[0]},@{$featureref[0]},0,@newclusters ;
@@ -361,9 +406,9 @@ for my $fg (@$featuregroup) {
 print "\n" ;
 
 
-open (ODAT, ">/tmp/odat.txt") || die "Can't open odat.txt for writing\n" ;
-print ODAT Dumper $data ;
-close (ODAT) ;
+#open (ODAT, ">/tmp/odat.txt") || die "Can't open odat.txt for writing\n" ;
+#print ODAT Dumper $data ;
+#close (ODAT) ;
 # 
 # Write back to output kml/kmz file. Note that for kmz file you have to set
 # zip option, its not automatic
@@ -594,5 +639,15 @@ sub printReport{
 	}
 	print "\n" ;
 	close(FREP) ;
+}
+
+sub whiteListed {
+	my $wlist = shift ;
+	my $entry = shift ;
+	for (my $i = 0; $i<@$wlist; $i++) {
+		if ($entry == $$wlist[$i]) { return 1 ; }
+		#elsif ($entry > $$wlist[$i]) { return 0 ; }
+	}
+	return 0;
 }
 

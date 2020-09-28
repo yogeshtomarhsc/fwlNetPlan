@@ -141,14 +141,20 @@ sub xmlToPolygon {
 	if (!defined($towerdata{$cname})) {
 	       my %tdata ;
        		$tdata{'area'} = $pgon->area()*$milesperlat*$milesperlong;	       
-		$tdata{'nw'} = sprintf("%.10g,%.10g",$xmin,$ymax) ;
-		$tdata{'se'} = sprintf("%.10g,%.10g",$xmax,$ymin) ;
+		$tdata{'nw'} = sprintf("%.10g,%.10g",$ymax,$xmin) ;
+		$tdata{'se'} = sprintf("%.10g,%.10g",$ymin,$xmax) ;
 		$towerdata{$cname} = \%tdata ;
 	}
 	else {
 		$towerdata{$cname}{'area'} += $pgon->area()*$milesperlat*$milesperlong;
-		$towerdata{$cname}{'nw'} = sprintf("%.10g,%.10g",$xmin,$ymax) ;
-		$towerdata{$cname}{'se'} = sprintf("%.10g,%.10g",$xmin,$ymax) ;
+		my ($oldymax,$oldxmin) = split (/,/, $towerdata{$cname}{'nw'}) ;
+		my ($oldymin,$oldxmax) = split (/,/, $towerdata{$cname}{'se'}) ;
+		if ($oldymax < $ymax || $oldxmin > $xmin) {
+			$towerdata{$cname}{'nw'} = sprintf("%.10g,%.10g",$ymax,$xmin) ;
+		}
+		if ($oldymin > $ymin || $oldxmax < $xmax) {
+			$towerdata{$cname}{'se'} = sprintf("%.10g,%.10g",$ymin,$xmax) ;
+		}
 	}
 	return $pgon ;
 }
