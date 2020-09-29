@@ -9,7 +9,6 @@ use strict;
 our @ISA = qw(Exporter);
 our @EXPORT = qw(codePointList sampleHistogram);
 
-my $tDir = "/home/ggne0015/src/hnsNetPlan/srtm/NLCD_2016" ;
 sub sampleHistogram {
 	my $poly = shift ;
 	my $npts = shift ;
@@ -96,6 +95,13 @@ sub fileInit {
 	my $fileCont = shift ;
 	my ($fhdrname,$fbilname) ;
 	print "Init $fname\n" ;
+	my $tDir ; 
+	if (defined ($ENV{'NLCDHOME'}) ) {
+		$tDir = $ENV{'NLCDHOME'} ;
+	}
+	else { 
+		$tDir = "/home/ggne0015/src/hnsNetPlan/srtm/NLCD_2016" ;
+	}
 	$fhdrname = $tDir . "/" . $dname . "/" . $fname . ".hdr" ;
 	$fbilname = $tDir . "/" . $dname . "/" . $fname . ".bil" ;
 	unless (-e $fhdrname) { print "Couldn't find $fhdrname\n" ; return 0 ; }

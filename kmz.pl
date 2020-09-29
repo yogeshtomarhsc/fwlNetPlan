@@ -361,8 +361,10 @@ foreach my $cn (keys %countydata)
 			splice @clusterpoints,@clusterpoints,0,@points ;
 			push @plist,$$pgon ;
 		}
-		my $badclusterpoly = chainHull_2D @clusterpoints ;
-		my $clusterpoly = Math::Polygon->new(cvxPolygon::combinePolygonsConvex(\@plist)) ;
+		#my $badclusterpoly = chainHull_2D @clusterpoints ;
+		#my $clusterpoly = Math::Polygon->new(cvxPolygon::combinePolygonsConvex(\@plist)) ;
+		my $clusterpoly = Math::Polygon->new(@clusterpoints) ;
+		my $badclusterpoly = $clusterpoly ;
 		printf "Convex operation returns polygon with %d points, closed=%d\n",$clusterpoly->nrPoints(),$clusterpoly->isClosed() ;
 		my %options ;
 		$options{''} = 1 ;

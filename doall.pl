@@ -8,19 +8,16 @@ use Getopt::Std;
 our ($opt_d,$opt_D,$opt_h) ;
 $opt_d = "." ;
 $opt_D = "processed/" ;
-our $opt_b = "bbx.csv" ;
-getopt('d:D:hb:') ;
+our $opt_w = "" ;
+getopt('d:D:hw:') ;
 if ($opt_h) {
 	die <<EOH
-	Usage: doall.pl -d <directory to read kmz files from> -D <directory to write processed files to>
+	Usage: doall.pl -d <directory to read kmz files from> -D <directory to write processed files to> [-w <whitelist csv file>
 EOH
 ;
 exit(1) ;
 }
 opendir(DIR, $opt_d) || die "Can't open directory $opt_d:$!\n" ;
-if ($opt_b ne "") {
-	open (FH, ">", $opt_b) || die "Can't open bbox file $opt_b for writing\n" ; 
-}
 
 while (my $fname = readdir(DIR)) {
 	next unless ($fname =~ m@^([A-Z]+).kmz$@);
@@ -29,7 +26,11 @@ while (my $fname = readdir(DIR)) {
 	my $ofile = $opt_D . $1."mod.kmz" ;
 	my $rfile = $opt_D . $1."report.csv" ;
 	my $tfile = $opt_D . $1."terrain.csv" ;
-	my $wfile = $opt_d . "CBG_Short_List_v1.csv" ;
+	my $wfile ;
+	if ($opt_w eq "") { $wfile = $opt_d . "CBG_Short_List_v1.csv" ; }
+	elsif (-e $opt_w) { $wfile = $opt_w ; }
+	else { die "Provided whitelist file $opt_w doesn't exist\n" ; }
+
 	#print "Executing $fname...$ofile\n" ;
 	my $estring = "./kmz.pl -f ". $opt_d . $fname . " -k " . $ofile . " -r " . $rfile . " -K proximity3";
 	$estring .= " -w " . $wfile . " 2>&1 |";
