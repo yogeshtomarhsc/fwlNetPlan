@@ -22,7 +22,7 @@ my $prompt = 1;
 our $opt_f = "" ;
 our $opt_k = "" ;
 our $opt_r = "sampleReport.csv" ;
-our $opt_K = "Kmeans" ;
+our $opt_K = "proximity3" ;
 our $opt_t = "" ;
 our $opt_h ;
 our $opt_p = 0 ;
