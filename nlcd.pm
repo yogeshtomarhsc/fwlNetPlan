@@ -63,7 +63,7 @@ sub codePointList {
 			#}
 			$bilfiles{$fname} = \%bfContainer ;
 		}
-		if (!($npts++ % 10)) { print "." ; }
+		if (!($npts++ % 100)) { print "." ; }
 		my $nlcdData = readNLCDData($bilfiles{$fname},$lat,$long) ;
 		#print "$lat,$long ==> $nlcdData\n" ;
 		push @$codes,$nlcdData ;

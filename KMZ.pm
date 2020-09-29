@@ -29,13 +29,13 @@ sub makeNewOutlineStyle{
 	my ($red,$blue,$green) ;
 	if ($rgb == -1) {
 		$red = int(rand(255)) ;
-		$blue = int(rand(255)) ;
 		$green = int(rand(255)) ;
+		$blue = int(rand(255)) ;
 	}
 	else {
 		$red = ($rgb>>16) & 0xFF ;
-		$blue = ($rgb>>8) & 0xFF ;
-		$green = ($rgb) & 0xFF ;
+		$green = ($rgb>>8) & 0xFF ;
+		$blue = ($rgb) & 0xFF ;
 	}
 	my $clr = (0xff<<24) | (($blue) << 16) | (($green) << 8) | ($red)  ;
 	$newst{'id'} = $styleid ;
@@ -52,13 +52,13 @@ sub makeNewSolidStyle{
 	my ($red,$blue,$green) ;
 	if ($rgb == -1) {
 		$red = int(rand(255)) ;
-		$blue = int(rand(255)) ;
 		$green = int(rand(255)) ;
+		$blue = int(rand(255)) ;
 	}
 	else {
 		$red = ($rgb>>16) & 0xFF ;
-		$blue = ($rgb>>8) & 0xFF ;
-		$green = ($rgb) & 0xFF ;
+		$green = ($rgb>>8) & 0xFF ;
+		$blue = ($rgb) & 0xFF ;
 	}
 	my $clr = (0xff<<24) | (($blue) << 16) | (($green) << 8) | ($red)  ;
 	$newst{'id'} = $styleid ;
