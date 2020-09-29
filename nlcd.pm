@@ -9,7 +9,7 @@ use strict;
 our @ISA = qw(Exporter);
 our @EXPORT = qw(codePointList sampleHistogram);
 
-my $tDir = "/home/ggne0015/src/hnsNetPlan/HNSNetworkPlanning/updated_auction_904_kml/srtm/NLCD_2016" ;
+my $tDir = "/home/ggne0015/src/hnsNetPlan/srtm/NLCD_2016" ;
 sub sampleHistogram {
 	my $poly = shift ;
 	my $npts = shift ;
@@ -28,7 +28,7 @@ sub sampleHistogram {
 		$pt2 = $bpoints[$yrand] ;
 		$rp[1] = $$pt1[0]*$arand + $$pt2[0]*(1 - $arand) ;
 		$rp[0] = $$pt1[1]*$arand + $$pt2[1]*(1 - $arand) ;
-		printf "%.4g,%.4g ",$rp[0],$rp[1] ;
+		#printf "%.4g,%.4g ",$rp[0],$rp[1] ;
 		push @pts,\@rp ;
 	}
 	print "\nsampleHistogram: Calling code point list\n" ;
@@ -47,6 +47,7 @@ sub codePointList {
 	my $pts = shift ;
 	my $codes = shift ;
 	my %bilfiles ;
+	my $npts = 0;
 	foreach my $pt (@$pts) {
 		my $lat = $$pt[0] ;
 		my $long = $$pt[1] ;
@@ -62,10 +63,12 @@ sub codePointList {
 			#}
 			$bilfiles{$fname} = \%bfContainer ;
 		}
+		if (!($npts++ % 10)) { print "." ; }
 		my $nlcdData = readNLCDData($bilfiles{$fname},$lat,$long) ;
-		print "$lat,$long ==> $nlcdData\n" ;
+		#print "$lat,$long ==> $nlcdData\n" ;
 		push @$codes,$nlcdData ;
 	}
+	print "\n" ;
 }
 
 #

@@ -23,8 +23,8 @@ if ($opt_b ne "") {
 }
 
 while (my $fname = readdir(DIR)) {
-	print "Executing $fname\n" ;
 	next unless ($fname =~ m@^([A-Z]+).kmz$@);
+	print "Executing $fname\n" ;
 	my $state = $1 ;
 	my $ofile = $opt_D . $1."mod.kmz" ;
 	my $rfile = $opt_D . $1."report.csv" ;
@@ -32,20 +32,20 @@ while (my $fname = readdir(DIR)) {
 	my $wfile = $opt_d . "CBG_Short_List_v1.csv" ;
 	#print "Executing $fname...$ofile\n" ;
 	my $estring = "./kmz.pl -f ". $opt_d . $fname . " -k " . $ofile . " -r " . $rfile . " -K proximity3";
-	$estring .= " -w " . $wfile ;
+	$estring .= " -w " . $wfile . " 2>&1 |";
 	#$estring .= " -t $tfile |" ;
 	print "$estring\n" ;
-		system($estring) ;
-	#	open (SH, "$estring") || die "Can't open $estring\n" ;
-	#while (<SH>) {
-	#	chomp ;
-	#	if (/State/) { print "$_\n" ; }
+	#	system($estring) ;
+		open (SH, "$estring") || die "Can't open $estring\n" ;
+	while (<SH>) {
+		chomp ;
+		if (/Couldn't find/) { print "$_\n" ; }
 	#	/State.*xmin=([-0-9.]+).*xmax=([-0-9.]+).*ymin=([-0-9.]+).*ymax=([-0-9.]+)/ &&
 	#		do {
 	#			if ($opt_b) { print FH "$state,$1,$2,$3,$4\n" ;  }
 	#			{ print "$state,$1,$2,$3,$4\n" ;  }
 	#		} ;
-	#}
-	#close(SH) ;
+	}
+	close(SH) ;
 }
 close (FH) ;

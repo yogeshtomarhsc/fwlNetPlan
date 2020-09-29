@@ -34,7 +34,7 @@ if ($opt_h) {
 	exit(1) ;
 }
 my @colors = (0xffff0000, 0xff00ff00, 0xff0000ff, 0xffaa3333, 0xff33aa22,0xff00cccc, 0xff22cc22, 0xff22aacc) ;
-my @browncolors = (0xfffff8dc, 0xffffe4c4, 0xfff5deb3, 0xffd2b48c, 0xffbc8f8f,0xfff4a460, 0xffdaa520, 0xa0522d) ;
+my @polycolors = (0xfffff8dc, 0xffffe4c4, 0xfff5deb3, 0xffd2b48c, 0xff90ed90,0xffadff2f, 0xff32cd32, 0x228b22) ;
 my %pmlistentry ;
 
 #
@@ -81,6 +81,7 @@ if ($opt_w) {
 #
 
 my %terraindB ;
+my %srtmDB ;
 my $tdbAvail = 0;
 my @sbbox ;
 if (($opt_t ne "") && (-e $opt_t) && (terraindB::loadTerrainDB($opt_t,\%terraindB,\@sbbox) == 1) )
@@ -163,6 +164,7 @@ foreach my $pref (@placemarkhashes) {
 	}
 
 	my ($county,$new) = getCounty($description,\@counties) ;
+	print "County $county\n" ;
 	if (!defined %countydata{$county}) {
 		push @counties, $county;
 		my @listAois ;
@@ -206,8 +208,15 @@ foreach my $pref (@placemarkhashes) {
 	my $center =  $nxtaoi->centroid() ;
 	($$cx[$$countyAoiCtr],$$cy[$$countyAoiCtr]) = @$center ;
 	my %tdata ; 
-		$tdata{'terrainType'} = getTerrainCode(@$center,$$pref{'name'},$tdbAvail,\%terraindB); 
-		$tdata{'area'} = $parea  ;
+	{
+			my %histogram ;
+			my $npts = int($nxtaoi->area()*$milesperlat*$milesperlong)+1 ;
+			print "Calling samplehistogram with $npts points\n" ;
+			nlcd::sampleHistogram($nxtaoi,$npts*100,\%histogram) ;
+			my $totalrange = @polycolors ;
+			$tdata{'terrainType'} = getTerrainCodeFromHistogram(\%histogram,$totalrange); 
+	}
+	$tdata{'area'} = $parea  ;
 	$terrainData{$$pref{'name'}} = \%tdata ;
 	if (!$tdbAvail) {
 		my %tdbEntry ;
@@ -301,17 +310,17 @@ for ($nc = 0; $nc<@colors; $nc++){
 # 
 # Create new terrain styles, to be allocated randomly to clusters
 #
-for ($nc = 0; $nc<@browncolors; $nc++){
+for ($nc = 0; $nc<@polycolors; $nc++){
 	print "Adding new style $nc\n" ;
 	my %newstyle ;
-	my %newst = makeNewSolidStyle($nc,$browncolors[$nc]) ;
+	my %newst = makeNewSolidStyle($nc,$polycolors[$nc]) ;
 	$newstyle{'Style'} = \%newst ;
 	push @$stylegroup, \%newstyle ;
 }
 #
 # Make a new grey style
 my (%greystyle,%greyst,$greyid) ;
-$greyid = @browncolors ;
+$greyid = @polycolors ;
 %greyst = makeNewSolidStyle($greyid,0xff708090) ;
 $greystyle{'Style'} = \%greyst ;
 push @$stylegroup,\%greystyle ;
@@ -362,14 +371,7 @@ foreach my $cn (keys %countydata)
 		$cinf{'name'} = $newc;
 		$cinf{'poly'} = $badclusterpoly ;
 		push @{$countydata{$cn}{'clusters'}} , \%cinf ;
-		{
-			my %histogram ;
-			my $npts = int($clusterpoly->area()*$milesperlat*$milesperlong) ;
-			print "Calling samplehistogram with $npts points\n" ;
-			nlcd::sampleHistogram($clusterpoly,$npts,\%histogram) ;
-		}
-	
-		
+
 		my $description = makeNewDescription("Cluster $newcn, county $cn List of CBGs:$cliststring") ;
 		my $cstyle = sprintf("ClusterStyle%.3d",$newcn%@colors) ;
 		my $newcluster = makeNewCluster($cn,$clusterpoly,\%pmlistentry,$ccn,$cstyle,$description) ;
@@ -439,7 +441,6 @@ printReport(\%countydata,$opt_r,\%terrainData) ;
 #
 # Last step. Dump the state bounding boxes on the screen
 
-printf "State bounding box: xmin=%.8g xmax=%.8g ymin=%.8g ymax=%.8g\n", $sbbox[0], $sbbox[1], $sbbox[2], $sbbox[3] ;
 exit(1) ;
 
 
@@ -514,7 +515,7 @@ sub aoiClustersProximity{
 		my $cnt = $$poly->centroid ;
 		$box{'centroid'} = $cnt ;
 		$box{'area'} = $$poly->area * $milesperlat * $milesperlong ;
-		printf "Polygon of centroid %.4g,%.4g, area %.4g\n", $$cnt[0], $$cnt[1], $$poly->area ;
+		#printf "Polygon of centroid %.4g,%.4g, area %.4g\n", $$cnt[0], $$cnt[1], $$poly->area ;
 		push @boxes,\%box ;
 	}
 	my $nb = @boxes ;
@@ -598,16 +599,18 @@ sub getCounty{
 }
 	
 
-my @terrainDensity = (21, 22, 23, 24, 25, 26, 27, 28) ;
 sub printReport{
 	my $cdata = shift ;
 	my $ofile = shift ;
 	my $tdata = shift ;
+	my @terrainDensity = (75, 70, 65,60,55,50,45,40) ;
 	#	print Dumper $tdata ;
 	#return 0;
 	open (FREP,">", "$ofile") || die "Can't open $ofile for writing\n" ; 
-	print FREP "County,Cluster id,Area (sq.miles), CBG ARea, %Coverage, Number of Towers,List of CBGs\n" ;
+	print FREP "County,Cluster id,Area (sq.miles), CBG ARea, %Coverage, Weighted Terrain Code,Number of Towers,List of CBGs\n" ;
 	print "Processing counties..." ;
+	my ($totalArea,$totalTowers,$totalCbgArea) ;
+	$totalArea = $totalTowers = $totalCbgArea = 0 ;
 	for my $cname (sort keys %$cdata) {
 		my $clist = $$cdata{$cname}{'clusters'} ;
 		print "[$cname] " ;
@@ -615,14 +618,15 @@ sub printReport{
 		my $listofAois = $$cdata{$cname}{'aois'} ;
 		my %aoiArea ;
 		my %towers;
+		my %terrainCode ;
 		for my $aoi (@$listofAois) {
 			#print "Name $$aoi{'name'}..." ;
 			my $poly = $$aoi{'polygon'} ;
 			$aoiArea{$$aoi{'name'}} = $$poly->area * $milesperlat * $milesperlong ; 
 			#printf "area = %.4g..", $$poly->area ;
-			my $terrain = $$tdata{$$aoi{'name'}}{'terrainType'} ;
-			my $cellDensity = $terrain+20 ;
-			#print "terrain=$terrain density=$cellDensity\n" ;
+			$terrainCode{$$aoi{'name'}} = $$tdata{$$aoi{'name'}}{'terrainType'} ;
+			my $cellDensity = $terrainDensity[0] - 5*$terrainCode{$$aoi{'name'}} ;
+			print "terrain=$terrainCode{$$aoi{'name'}} density=$cellDensity\n" ;
 			my $aoiTower = int($aoiArea{$$aoi{'name'}}/$cellDensity) ;
 			if ($aoiTower < 1) { $aoiTower = 1;}
 			$towers{$$aoi{'name'}} += $aoiTower ;
@@ -633,18 +637,27 @@ sub printReport{
 			my $ostring = "" ;
 			my $cbgClusterArea = 0 ; 
 			my $twrs = 0;
+			my $weightedTerrainCode= 0 ;
 			my $cbglist = $$clusterlist{$$cid{'name'}} ;
 			for my $cbg (@$cbglist) {
 				$ostring .= "$cbg:" ;
 				$cbgClusterArea += $aoiArea{$cbg} ;
 				$twrs += $towers{$cbg} ;
+				$weightedTerrainCode += $terrainCode{$cbg}*$aoiArea{$cbg} ;
 			}
+			$weightedTerrainCode = int($weightedTerrainCode/$cbgClusterArea) ;
 			my $pc = int(100.0*($cbgClusterArea/$clusterarea)) ; 
-			printf FREP "%.10s,%10s,%.6g,%.4g,%d%%,%d,",$cname,$$cid{'name'},$clusterarea,$cbgClusterArea,$pc,$twrs;
+			printf FREP "%.10s,%10s,%.6g,%.4g,%d%%,%d,%d,",
+				$cname,$$cid{'name'},$clusterarea,$cbgClusterArea,$pc,
+				$weightedTerrainCode,$twrs;
 			print FREP "$ostring\n" ;
+			$totalArea += $clusterarea ;
+			$totalCbgArea += $cbgClusterArea ;
+			$totalTowers += $twrs ;
 		}
 	}
-	print "\n" ;
+	print "\n";
+	print FREP "Towers = $totalTowers\nArea = $totalArea\nCBG Area = $totalCbgArea\n" ;
 	close(FREP) ;
 }
 
@@ -658,3 +671,23 @@ sub whiteListed {
 	return 0;
 }
 
+sub getTerrainCodeFromHistogram {
+	my $hist = shift ;
+	my $range = shift ;
+	my ($forest,$urban,$wet,$good)  ;
+	my ($total) ;
+	my $ret ;
+	print "getTerrainCode:" ;
+	$forest = $$hist{41} + $$hist{42}+ $$hist{43} ;
+	$urban = $$hist{22} + $$hist{23} + $$hist{24} ;
+	$wet = $$hist{11} + $$hist{12} + $$hist{90} + $$hist{95} ;
+	$total = 0 ;
+	for my $nlcd (keys %$hist) {
+		print "$nlcd=>$$hist{$nlcd} " ;
+		$total += $$hist{$nlcd} ;
+	}
+	print "forest = $forest, urban=$urban, wet = $wet " ;
+	$ret = ($forest + $urban + $wet)/$total ;
+	print "ret=$ret\n" ;
+	return int($ret * $range) ;
+}
