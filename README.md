@@ -24,9 +24,10 @@ old ones can be deleted or merged, etc.
 -d <directory where the kmz files are stored>
 -D <directory where the output files are to be reported>
 -K common clustering rule
+-C <directory of clustering files>
 doall.pl calls kmz.pl with the clustering rule given for each file in the directory and stores the processed files with reports
 in the output directory.
-if -K is a directory, the doall script looks for filenames of the format <stateid>cluster.csv and loads that.
+if -C is a directory, the doall script looks for filenames of the format <stateid>cluster.csv and loads that.
 
 # We use the NLCD data files in the organization used by fetchSRTM. Unfortunately fetchSRTM only runs on Windows, so we
 # had to download on windows and then move to a local Linux directory for performance. You can download the NLCD data for

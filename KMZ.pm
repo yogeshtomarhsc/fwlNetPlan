@@ -66,7 +66,7 @@ sub makeNewSolidStyle{
 	if ($boundary) {
 		$bwidth= 1.0000 ;
 	}
-	my $bclr = 0xff222222 ;
+	my $bclr = 0xff0011cc ;
 	$newst{'id'} = $styleid ;
 	$newst{'PolyStyle'} = {'color' => $clr, 'outline' => 1, 'fill' => 1} ;
 	$newst{'LabelStyle'} = { 'color' => $clr, 'scale' => 0.0000 } ;
