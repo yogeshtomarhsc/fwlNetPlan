@@ -41,14 +41,15 @@ sub makeNewOutlineStyle{
 	$newst{'id'} = $styleid ;
 	$newst{'PolyStyle'} = {'color' => $clr, 'outline' => 1, 'fill' => 0} ;
 	$newst{'LabelStyle'} = { 'color' => $clr, 'scale' => 0.0000 } ;
-	$newst{'LineStyle'} = { 'color' => $clr, 'width' => 3.0000 } ;
+	$newst{'LineStyle'} = { 'color' => $clr, 'width' => 0.1000 } ;
 	%newst ;
 }
 sub makeNewSolidStyle{
-	my %newst ;
 	my $num = shift ;
 	my $rgb = shift || -1;
+	my $boundary = shift || 0 ;
 	my $styleid = shift || "TerrainStyle" . sprintf("%.3d", $num) ;
+	my %newst ;
 	my ($red,$blue,$green) ;
 	if ($rgb == -1) {
 		$red = int(rand(255)) ;
@@ -61,10 +62,15 @@ sub makeNewSolidStyle{
 		$blue = ($rgb) & 0xFF ;
 	}
 	my $clr = (0xff<<24) | (($blue) << 16) | (($green) << 8) | ($red)  ;
+	my $bwidth = 0.1000;
+	if ($boundary) {
+		$bwidth= 1.0000 ;
+	}
+	my $bclr = 0xff222222 ;
 	$newst{'id'} = $styleid ;
 	$newst{'PolyStyle'} = {'color' => $clr, 'outline' => 1, 'fill' => 1} ;
 	$newst{'LabelStyle'} = { 'color' => $clr, 'scale' => 0.0000 } ;
-	$newst{'LineStyle'} = { 'color' => $clr, 'width' => 0.1000 } ;
+	$newst{'LineStyle'} = { 'color' => $bclr, 'width' => $bwidth } ;
 	%newst ;
 }
 sub makeNewCluster{

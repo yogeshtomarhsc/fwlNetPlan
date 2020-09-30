@@ -65,6 +65,8 @@ my (@whitelist,@wlist) ;
 if ($opt_w) {
 	open (WL,$opt_w) || die "Can't open $opt_w for whitelist reading\n" ;
 	while (<WL>) {
+		chomp ;
+		if (/^#.*$/) { next ; } 
 		if (/(\d+),([A-Z]+)/) {
 			if ($2 eq $statename) { 
 				push @wlist,$1 ;
@@ -211,10 +213,11 @@ foreach my $pref (@placemarkhashes) {
 	{
 			my %histogram ;
 			my $npts = int($nxtaoi->area()*$milesperlat*$milesperlong)+1 ;
-			print "Calling samplehistogram with $npts points\n" ;
+			print "Calling samplehistogram with $npts points for placemark $$pref{'name'}:" ;
 			nlcd::sampleHistogram($nxtaoi,$npts*100,\%histogram) ;
 			my $totalrange = @polycolors ;
 			$tdata{'terrainType'} = getTerrainCodeFromHistogram(\%histogram,$totalrange); 
+			print "$tdata{'terrainType'}\n" ;
 	}
 	$tdata{'area'} = $parea  ;
 	$terrainData{$$pref{'name'}} = \%tdata ;
@@ -263,8 +266,7 @@ foreach my $cn (keys %countydata)
 		($clusters[$nc],$clustercenters[$nc],$tclusters[$nc]) = 
 			aoiClustersKmeans($countydata{$cn}{'aois'},$countydata{$cn}{'cx'},$countydata{$cn}{'cy'},$totalArea) ;
 	}
-	#elsif ($opt_K eq "proximity") {
-	else {
+	elsif ($opt_K =~ /proximity([.0-9]+)/) {
 		my $thresh = 5 ;
 		($opt_K =~ /proximity([.0-9]+)/) && do {
 			$thresh = $1 ; 
@@ -274,9 +276,13 @@ foreach my $cn (keys %countydata)
 			aoiClustersProximity($countydata{$cn}{'aois'},$thresh) ;
 			die unless (prompt(\$prompt) == 1) ;
 	}
-	#	else {
-	#	die "Unknown clustering method $opt_K\n" ;
-	#}
+	elsif (-e $opt_K) {
+		($clusters[$nc],$tclusters[$nc]) = 
+			aoiLoadClusterFile($cn,$opt_K) ;
+	}
+	else {
+		die "Unknown clustering method $opt_K\n" ;
+	}
 	$countydata{$cn}{'clusterMap'} = $clusters[$nc] ;
 	$numclusters += $tclusters[$nc] ;
 	print "$tclusters[$nc] clusters returned (total=$numclusters)\n" ;
@@ -313,7 +319,7 @@ for ($nc = 0; $nc<@colors; $nc++){
 for ($nc = 0; $nc<@polycolors; $nc++){
 	print "Adding new style $nc\n" ;
 	my %newstyle ;
-	my %newst = makeNewSolidStyle($nc,$polycolors[$nc]) ;
+	my %newst = makeNewSolidStyle($nc,$polycolors[$nc],1) ;
 	$newstyle{'Style'} = \%newst ;
 	push @$stylegroup, \%newstyle ;
 }
@@ -321,7 +327,7 @@ for ($nc = 0; $nc<@polycolors; $nc++){
 # Make a new grey style
 my (%greystyle,%greyst,$greyid) ;
 $greyid = @polycolors ;
-%greyst = makeNewSolidStyle($greyid,0xff708090) ;
+%greyst = makeNewSolidStyle($greyid,0xff708090,0) ;
 $greystyle{'Style'} = \%greyst ;
 push @$stylegroup,\%greystyle ;
 
@@ -329,9 +335,13 @@ my $newcn = $oldnc ;
 
 #
 # Now each cluster is enclosed in a single, convex polygon
+# All placemarks within the cluster are coloured the same.
+# We keep track using styleIdHash ;
 #
 my $i = 0;
 my @newfolders ;
+my %styleIdHash ;
+my $styleCounter = 0 ;
 foreach my $cn (keys %countydata)
 {
 	my @newclusters ;
@@ -349,6 +359,7 @@ foreach my $cn (keys %countydata)
 			foreach my $pref (@$preflist) {
 				if ($$pref{'name'} eq $pk) {
 					$pgon = $$pref{'polygon'} ;
+					$styleIdHash{$$pref{'name'}} = $styleCounter;
 					last ;
 				}
 			}
@@ -361,10 +372,8 @@ foreach my $cn (keys %countydata)
 			splice @clusterpoints,@clusterpoints,0,@points ;
 			push @plist,$$pgon ;
 		}
-		#my $badclusterpoly = chainHull_2D @clusterpoints ;
-		#my $clusterpoly = Math::Polygon->new(cvxPolygon::combinePolygonsConvex(\@plist)) ;
-		my $clusterpoly = Math::Polygon->new(@clusterpoints) ;
-		my $badclusterpoly = $clusterpoly ;
+		my $badclusterpoly = chainHull_2D @clusterpoints ;
+		my $clusterpoly = Math::Polygon->new(cvxPolygon::combinePolygonsConvex(\@plist)) ;
 		printf "Convex operation returns polygon with %d points, closed=%d\n",$clusterpoly->nrPoints(),$clusterpoly->isClosed() ;
 		my %options ;
 		$options{''} = 1 ;
@@ -381,6 +390,7 @@ foreach my $cn (keys %countydata)
 		push @newclusters, $newcluster ;
 		$newcn++ ; $ccn++ ; 
 		#printf("newcn -> $newcn\n") ;
+		$styleCounter++ ;
 	}
 	my %newfolder ; 
 	my %foldercontainer ;
@@ -399,7 +409,8 @@ foreach my $pref (@placemarkhashes) {
 		$styleid = $greyid ;
 	}
 	else {
-		$styleid = $terrainData{$$pref{'name'}}{'terrainType'}%$nc;
+		#$styleid = $terrainData{$$pref{'name'}}{'terrainType'}%$nc;
+		$styleid = %styleIdHash{$$pref{'name'}}%$nc;
 	}
 	next unless ($styleid != -1) ;
 
@@ -411,10 +422,6 @@ foreach my $pref (@placemarkhashes) {
 for my $fg (@newfolders) {
 	push @$featuregroup, $fg ;
 }
-for my $fg (@$featuregroup) {
-	print "$fg " ;
-}
-print "\n" ;
 
 
 #open (ODAT, ">/tmp/odat.txt") || die "Can't open odat.txt for writing\n" ;
@@ -531,6 +538,31 @@ sub aoiClustersProximity{
 	return \%clusters,$nc ;
 }
 
+sub aoiLoadClusterFile {
+	my $cn = shift ;
+	my $fname = shift ;
+	my %clusters ;
+	my $nc = 0;
+	open (CR,$fname) || die "Can't open $fname for reading:$!\n" ;
+	while (<CR>) {
+		chomp ;
+		if (/^#.*$/) { next ; }
+		my @fields = split(/,/) ;
+		next unless ($fields[0] eq $cn) ; 
+		my $clusterid = $fields[1] ;
+		my @cbgs = split(/:/,$fields[$#fields]) ;
+		print "County $cn, cluster $clusterid:" ;
+		foreach my $cbgid (@cbgs) {
+			print "$cbgid " ;
+		}
+		print "\n" ;
+		$clusters{$clusterid} = \@cbgs ;
+		$nc++ ;
+	}
+	close (CR) ;
+	return \%clusters,$nc ;
+}
+
 sub prompt{
 	my $continue = shift ;
 	if ($$continue == 1) { return 1 ; }
@@ -615,7 +647,6 @@ sub printReport{
 	$totalArea = $totalTowers = $totalCbgArea = 0 ;
 	for my $cname (sort keys %$cdata) {
 		my $clist = $$cdata{$cname}{'clusters'} ;
-		print "[$cname] " ;
 		my $clusterlist = $$cdata{$cname}{'clusterMap'} ;
 		my $listofAois = $$cdata{$cname}{'aois'} ;
 		my %aoiArea ;
@@ -627,8 +658,8 @@ sub printReport{
 			$aoiArea{$$aoi{'name'}} = $$poly->area * $milesperlat * $milesperlong ; 
 			#printf "area = %.4g..", $$poly->area ;
 			$terrainCode{$$aoi{'name'}} = $$tdata{$$aoi{'name'}}{'terrainType'} ;
-			my $cellDensity = $terrainDensity[0] - 5*$terrainCode{$$aoi{'name'}} ;
-			print "terrain=$terrainCode{$$aoi{'name'}} density=$cellDensity\n" ;
+			my $cellDensity = $terrainDensity[$terrainCode{$$aoi{'name'}}] ;
+			if ($cellDensity == 0) { die "terrain=$terrainCode{$$aoi{'name'}} cname = $cname aoi = $$aoi{'name'} density=$cellDensity\n" ; }
 			my $aoiTower = int($aoiArea{$$aoi{'name'}}/$cellDensity) ;
 			if ($aoiTower < 1) { $aoiTower = 1;}
 			$towers{$$aoi{'name'}} += $aoiTower ;
@@ -691,5 +722,6 @@ sub getTerrainCodeFromHistogram {
 	print "forest = $forest, urban=$urban, wet = $wet " ;
 	$ret = ($forest + $urban + $wet)/$total ;
 	print "ret=$ret\n" ;
-	return int($ret * $range) ;
+	if ($ret == 1) { return $range - 1 ; }
+	else  {return int($ret * $range) ; }
 }
