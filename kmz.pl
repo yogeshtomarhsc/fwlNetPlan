@@ -112,6 +112,9 @@ foreach my $fg (@$featuregroup) {
 		my $fder = %$fg{$fkey} ;
 		for my $fderkey (keys %$fder) {
 			print "Folder Key $fderkey: Value $$fder{$fderkey}\n" ;
+			#if ($fderkey eq "description") {
+			#	$$fder{$fderkey} = $statename ;
+			#}
 			next unless ($fderkey eq 'AbstractFeatureGroup') ;
 			$featureref[$featurecnt]  = $$fder{'AbstractFeatureGroup'} ;
 			foreach my $fcount (@{$featureref[$featurecnt]})
@@ -321,7 +324,7 @@ for ($nc = 0; $nc<@colors; $nc++){
 for ($nc = 0; $nc<@polycolors; $nc++){
 	print "Adding new style $nc\n" ;
 	my %newstyle ;
-	my %newst = makeNewSolidStyle($nc,$polycolors[$nc],1) ;
+	my %newst = makeNewSolidStyle($nc,$polycolors[$nc],192,1) ;
 	$newstyle{'Style'} = \%newst ;
 	push @$stylegroup, \%newstyle ;
 }
@@ -329,7 +332,7 @@ for ($nc = 0; $nc<@polycolors; $nc++){
 # Make a new grey style
 my (%greystyle,%greyst,$greyid) ;
 $greyid = @polycolors ;
-%greyst = makeNewSolidStyle($greyid,0xff708090,0) ;
+%greyst = makeNewSolidStyle($greyid,0xff7080240,240,0) ;
 $greystyle{'Style'} = \%greyst ;
 push @$stylegroup,\%greystyle ;
 
@@ -399,9 +402,36 @@ foreach my $cn (keys %countydata)
 			$newcluster = makeNewCluster($cn,$clusterpoly,$ccn,\@hlist,$cstyle,$description) ;
 		}
 		else {
-			$cstyle = sprintf("TerrainStyle%.3d",$newcn%@polycolors) ;
 			my $cname = sprintf("CBG_%s" , $cliststring) ;
-			$newcluster = makeNewCluster($cn,$clusterpoly,$ccn,\@hlist,$cstyle,$description, $cname) ;
+			my $found = -1 ;
+			$cstyle = sprintf("TerrainStyle%.3d",$newcn%@polycolors) ;
+			# Find the pref and copy it into the cluster data ;
+			my @pmarkname = @{$clusters[$i]->{$newc}} ;
+			print "Moving $pmarkname[0] to newcluster:" ;
+			#$newcluster = makeNewCluster($cn,$clusterpoly,$ccn,\@hlist,$cstyle,$description, $cname) ;
+			FOUND: for (my $fcount=0; $fcount < @{$featureref[0]}; $fcount++)
+			{
+				my $feature = ${$featureref[0]}[$fcount] ;
+				foreach my $fkey (%$feature) {
+					next unless ($fkey eq 'Placemark') ; 
+					my $placemark = $$feature{$fkey} ;
+					if (${$placemark}{'name'} eq $pmarkname[0]) {
+						my %geometries = %{$$placemark{'MultiGeometry'}} ;
+						if (defined( $geometries{'Polygon'})) {undef $geometries{'Polygon'}{'altitudeMode'} ; }
+
+						$newcluster = makeNewClusterFromPlacemark($cn,\%geometries,$ccn,$cstyle,$description,$cname) ;
+						$found = $fcount ;
+						last FOUND ;
+					}
+				}
+			}
+			if ($found != -1) {
+				print "found at $found\n" ;
+				splice @{$featureref[0]}, $found,1 ;
+			}
+			if ($found == -1){
+				die "Couldn't find $pmarkname[0]!\n" ;
+			}
 		}
 		#$newclusters[$newcn - $oldnc] = $newcluster ;
 		push @newclusters, $newcluster ;
@@ -409,6 +439,8 @@ foreach my $cn (keys %countydata)
 		#printf("newcn -> $newcn\n") ;
 		$styleCounter++ ;
 	}
+	my $nclusters = @newclusters ;
+	print "Adding $nclusters for $cn\n" ; 
 	my %newfolder ; 
 	my %foldercontainer ;
 	makeNewFolder($cn,\@newclusters, \%newfolder, $fdrcnt++) ;

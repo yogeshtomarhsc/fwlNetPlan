@@ -5,7 +5,7 @@ require Exporter ;
 use strict;
 
 our @ISA = qw(Exporter);
-our @EXPORT = qw(makeNewOutlineStyle makeNewSolidStyle makeNewCluster makeNewPolygon makeNewDescription makeNewFolder);
+our @EXPORT = qw(makeNewOutlineStyle makeNewSolidStyle makeNewCluster makeNewPolygon makeNewDescription makeNewFolder makeNewClusterFromPlacemark) ;
 
 
 sub polygonToArray {
@@ -47,6 +47,7 @@ sub makeNewOutlineStyle{
 sub makeNewSolidStyle{
 	my $num = shift ;
 	my $rgb = shift || -1;
+	my $transparency = shift  || 255 ;
 	my $boundary = shift || 0 ;
 	my $styleid = shift || "TerrainStyle" . sprintf("%.3d", $num) ;
 	my %newst ;
@@ -61,7 +62,7 @@ sub makeNewSolidStyle{
 		$green = ($rgb>>8) & 0xFF ;
 		$blue = ($rgb) & 0xFF ;
 	}
-	my $clr = (0x66<<24) | (($blue) << 16) | (($green) << 8) | ($red)  ;
+	my $clr = (($transparency%256)<<24) | (($blue) << 16) | (($green) << 8) | ($red)  ;
 	my $bwidth = 0;
 	if ($boundary) {
 		$bwidth= 1.0000 ;
@@ -73,6 +74,26 @@ sub makeNewSolidStyle{
 	$newst{'LineStyle'} = { 'color' => $bclr, 'width' => $bwidth } ;
 	%newst ;
 }
+
+sub makeNewClusterFromPlacemark{
+	my $county = shift ;
+	my $geometries = shift ;
+	my $newcn = shift ;
+	my $styleid = shift || sprintf("ClusterStyle%.3d",$newcn) ;
+	my $desc = shift || "Empty string\n" ;
+	my $clustername = shift || sprintf "%s/Cluster_%d", $county, $newcn ;
+	my %placemark ;
+	my %newcluster ;
+
+	$placemark{'name'} = $clustername ;
+	$placemark{'styleUrl'} = "#".$styleid ;
+	$placemark{'description'} = $desc; 
+	$placemark{'id'} = sprintf("ClusterID_%d",$newcn)  ;
+	$placemark{'MultiGeometry'} =$geometries ;
+	$newcluster{'Placemark'} = \%placemark ;
+	return \%newcluster ;
+}
+
 sub makeNewCluster{
 	my $county = shift ;
 	my $clusterpoly = shift ;
@@ -108,6 +129,7 @@ sub makeNewCluster{
 			push @holes,\%holedesc ;
 		}
 		$innerB{'innerBoundaryIs'} = \@holes ;
+		$innerB{'extrude'} = 0 ;
 		$holegeom{'Polygon'} = \%innerB ;
 		push @polygons,\%holegeom ;
 	}
