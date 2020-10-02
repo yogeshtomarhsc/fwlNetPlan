@@ -10,7 +10,6 @@ use XML::LibXML ;
 use Math::Polygon ;
 use KMZ ;
 use cvxPolygon;
-use terraindB ;
 use nlcd;
 
 $Data::Dumper::Indent = 1;
@@ -23,19 +22,19 @@ our $opt_f = "" ;
 our $opt_k = "" ;
 our $opt_r = "sampleReport.csv" ;
 our $opt_K = "proximity3" ;
-our $opt_t = "" ;
 our $opt_h ;
 our $opt_p = 0 ;
 our $opt_t = "" ;
 our $opt_w = "" ;
-getopts('f:k:r:K:t:hw:') ;
+getopts('f:k:r:K:hw:') ;
 if ($opt_h) {
-	print "Usage:kmz.pl -f <input kmz file> -k <output kmz file> -r <report file> -t <terrain db> -K <Kmeans/proximity>\n";
+	print "Usage:kmz.pl -f <input kmz file> -k <output kmz file> -r <report file>  -K <Kmeans/proximity>\n";
 	exit(1) ;
 }
 my @colors = (0xffff0000, 0xff00ff00, 0xff0000ff, 0xffaa3333, 0xff33aa22,0xff00cccc, 0xff22cc22, 0xff22aacc) ;
 my @polycolors = (0xfffff8dc, 0xffffe4c4, 0xfff5deb3, 0xffd2b48c, 0xff90ed90,0xffadff2f, 0xff32cd32, 0xff228b22) ;
 my %pmlistentry ;
+my $noclustering = 0;
 
 #
 # We need a file to load
@@ -61,37 +60,23 @@ else {
 			} ;
 	}
 }
+if ($opt_K eq "no") {
+	$noclustering = 1 ;
+}
 my (@whitelist,@wlist) ;
 if ($opt_w) {
 	open (WL,$opt_w) || die "Can't open $opt_w for whitelist reading\n" ;
 	while (<WL>) {
 		chomp ;
 		if (/^#.*$/) { next ; } 
-		if (/(\d+),([A-Z]+)/) {
-			if ($2 eq $statename) { 
-				push @wlist,$1 ;
-			}
+		if (/^(\d+)/) {
+			push @wlist,$1 ;
 		}
 	}
 	my $nw = @wlist ;
 	@whitelist = sort {$a <=> $b} @wlist ;
 	print "$nw entries loaded\n" ;
 }
-
-#
-# See if terrain db exists...in which case it gets loaded. Else, we will have to write to it
-#
-
-my %terraindB ;
-my %srtmDB ;
-my $tdbAvail = 0;
-my @sbbox ;
-if (($opt_t ne "") && (-e $opt_t) && (terraindB::loadTerrainDB($opt_t,\%terraindB,\@sbbox) == 1) )
-{
-	print "Loaded Terrain DB from $opt_t\n" ;
-	$tdbAvail = 1 ;
-}
-
 
 if ($opt_p) { $prompt = 0 ; }
 
@@ -106,7 +91,8 @@ my ($ns,$data) = Geo::KML->readKML($opt_f) ;
 my $dhash = %$data{'Document'} ;
 #for (keys %$dhash) {
 #	print "Key $_: Value $$dhash{$_}\n" ;
-#}
+#print Dumper $data ;
+#die "Dead!\n" ;
 my $featuregroup = $$dhash{'AbstractFeatureGroup'} ;
 my $stylegroup = $$dhash{'AbstractStyleSelectorGroup'} ;
 
@@ -190,21 +176,39 @@ foreach my $pref (@placemarkhashes) {
 	my $cx = $countydata{$county}{'cx'} ;
 	my $cy = $countydata{$county}{'cy'} ;
 	my $countyAoiCtr = $countydata{$county}{'centroid'};
+	my @polyholes ;
+	my $holearea = 0;
 	foreach my $geomkey (@$geometries) {
 		my $coordinates = $$geomkey{'Polygon'}{'outerBoundaryIs'}{'LinearRing'}{'coordinates'} ;
 		my @plist = arrayToPolygon($coordinates) ;
 		splice @pcoords,@pcoords,0,@plist ;
 		$polygonlist[$nxtp++] = Math::Polygon->new(@plist) ;
-
+		if (defined($$geomkey{'Polygon'}{'innerBoundaryIs'})) {
+			my $holes = $$geomkey{'Polygon'}{'innerBoundaryIs'} ;
+			my $nh  = @$holes ;
+			if ($nh) { 
+				print "Found $nh holes in $$pref{'name'}: " ;
+				foreach my $hole (@$holes) {
+					my $hp = Math::Polygon->new(arrayToPolygon($$hole{'LinearRing'}{'coordinates'})) ;
+					printf "hole of area %.4g, ", $hp->area * $milesperlat * $milesperlong ;
+					push @polyholes,$hp ;
+					$holearea += $hp->area() * $milesperlat * $milesperlong ;
+				}
+				print "\n" ;
+			}
+		}
 		undef $$geomkey{'Polygon'}{'altitudeMode'} ;
 	#{ print "coordinate string: $$geomkey{'Polygon'}{'outerBoundaryIs'}{'LinearRing'}{'coordinates'}\n" ; }
 	}
-		my $nxtaoi = chainHull_2D @pcoords ;
+	my $nxtaoi = chainHull_2D @pcoords ;
 	#	my $nxtaoi = Math::Polygon->new(cvxPolygon::combinePolygonsConvex(\@polygonlist)) ;
 	$nxtaoi->simplify() ;
 	my $pcnt = $nxtaoi->nrPoints ;
 	my $parea = $nxtaoi->area()*$milesperlat*$milesperlong ;
-	#	printf "Converted placemark to convex hull of %d points, area = %.4g (closed=%d) ", $pcnt,$parea,$nxtaoi->isClosed() ;
+	$parea -= $holearea ;
+	printf "Converted placemark to convex hull of %d points, area = %.4g (closed=%d) ", $pcnt,$parea,$nxtaoi->isClosed() ;
+	my $numholes = @polyholes ;
+	print "Found $numholes holes\n" ; 
 	next unless ($parea > $EPS) ;
 	next unless ($nxtaoi->isClosed()) ;
 	my $center =  $nxtaoi->centroid() ;
@@ -221,21 +225,10 @@ foreach my $pref (@placemarkhashes) {
 	}
 	$tdata{'area'} = $parea  ;
 	$terrainData{$$pref{'name'}} = \%tdata ;
-	if (!$tdbAvail) {
-		my %tdbEntry ;
-		my (@se,@nw) ;
-		($nw[0],$se[1],$se[0],$nw[1]) = $nxtaoi->bbox ;
-		$tdbEntry{'county'} =  $county ;
-		$tdbEntry{'SouthEast'} = \@se ;
-		$tdbEntry{'NorthWest'} = \@nw ;
-		$tdbEntry{'centroid'} = $center ;
-		$tdbEntry{'area'} = $parea ;
-		$terraindB{$$pref{'name'}} = \%tdbEntry ;
-	}
 		
 		
 	#print " centroid=$$cx[$$countyAoiCtr],$$cy[$$countyAoiCtr]\n" ; 
-	my %aoihash = ( 'name' => $$pref{'name'} , 'polygon' => \$nxtaoi ) ;
+	my %aoihash = ( 'name' => $$pref{'name'} , 'polygon' => \$nxtaoi, 'holes' => \@polyholes ) ;
 	push @$listofAois,\%aoihash ;
 	$totalArea += $parea ;
 	$$countyAoiCtr++ ;
@@ -248,9 +241,6 @@ for my $cname (keys %countydata) {
 	print "$cname -> $np ",
 }
 print "\n" ;
-if (!$tdbAvail && $opt_t ne "") {
-	terraindB::printTerrainDB($opt_t, \%terraindB) ;
-}
 
 #
 # Clustering
@@ -261,10 +251,18 @@ $nc = $numclusters = 0;
 foreach my $cn (keys %countydata)
 {
 	my @aois = @{$countydata{$cn}{'aois'}} ;
-	if ($opt_K eq "Kmeans" && (@aois > 9)) {
+	if ($opt_K eq "Kmeans"){
+	       if (@aois > 9) {
 		print "Trying K-means clustering for $cn \n" ;
 		($clusters[$nc],$clustercenters[$nc],$tclusters[$nc]) = 
 			aoiClustersKmeans($countydata{$cn}{'aois'},$countydata{$cn}{'cx'},$countydata{$cn}{'cy'},$totalArea) ;
+		}
+		else {
+			my $sthresh = 4 ;
+			print "Trying Proximity clustering for $cn ($sthresh) \n" ;
+			($clusters[$nc],$tclusters[$nc]) = 
+				aoiClustersProximity($countydata{$cn}{'aois'},$sthresh) ;
+		}
 	}
 	elsif ($opt_K =~ /proximity([.0-9]+)/) {
 		my $thresh = 5 ;
@@ -275,6 +273,10 @@ foreach my $cn (keys %countydata)
 		($clusters[$nc],$tclusters[$nc]) = 
 			aoiClustersProximity($countydata{$cn}{'aois'},$thresh) ;
 			die unless (prompt(\$prompt) == 1) ;
+	}
+	elsif ($noclustering == 1) {
+		($clusters[$nc],$tclusters[$nc]) =
+			aoiNoClustering($countydata{$cn}{'aois'}) ;
 	}
 	elsif (-e $opt_K) {
 		($clusters[$nc],$tclusters[$nc]) = 
@@ -342,6 +344,7 @@ my $i = 0;
 my @newfolders ;
 my %styleIdHash ;
 my $styleCounter = 0 ;
+my $fdrcnt = (1 - $noclustering) ;
 foreach my $cn (keys %countydata)
 {
 	my @newclusters ;
@@ -350,15 +353,20 @@ foreach my $cn (keys %countydata)
 		my @clusterpoints ;
 		my @clist = @{$clusters[$i]->{$newc}} ;
 		my @plist ;
+		my @hlist ; 
 		my $cliststring = "" ;
 		print "newc = $newc newcn = $newcn\n" ;
 		for my $pk (@clist){
 			my $pgon = 0 ;
 			my $preflist = $countydata{$cn}{'aois'};
-			$cliststring .= sprintf("%s\n",$pk) ;
+			$cliststring .= sprintf("%s:",$pk) ;
 			foreach my $pref (@$preflist) {
 				if ($$pref{'name'} eq $pk) {
 					$pgon = $$pref{'polygon'} ;
+					my $listofHoles = $$pref{'holes'} ;
+					if (@$listofHoles) {
+						splice @hlist,@hlist,0,@$listofHoles;
+					}
 					$styleIdHash{$$pref{'name'}} = $styleCounter;
 					last ;
 				}
@@ -383,9 +391,18 @@ foreach my $cn (keys %countydata)
 		$cinf{'poly'} = $badclusterpoly ;
 		push @{$countydata{$cn}{'clusters'}} , \%cinf ;
 
-		my $description = makeNewDescription("Cluster $newcn, county $cn List of CBGs:$cliststring") ;
-		my $cstyle = sprintf("ClusterStyle%.3d",$newcn%@colors) ;
-		my $newcluster = makeNewCluster($cn,$clusterpoly,\%pmlistentry,$ccn,$cstyle,$description) ;
+		my $description = makeNewDescription("Cluster $newcn, county $cn List of CBGs:$cliststring\n") ;
+		my $cstyle ;
+		my $newcluster ;
+		if ($noclustering == 0) {
+			$cstyle = sprintf("ClusterStyle%.3d",$newcn%@colors) ;
+			$newcluster = makeNewCluster($cn,$clusterpoly,$ccn,\@hlist,$cstyle,$description) ;
+		}
+		else {
+			$cstyle = sprintf("TerrainStyle%.3d",$newcn%@polycolors) ;
+			my $cname = sprintf("CBG_%s" , $cliststring) ;
+			$newcluster = makeNewCluster($cn,$clusterpoly,$ccn,\@hlist,$cstyle,$description, $cname) ;
+		}
 		#$newclusters[$newcn - $oldnc] = $newcluster ;
 		push @newclusters, $newcluster ;
 		$newcn++ ; $ccn++ ; 
@@ -394,7 +411,7 @@ foreach my $cn (keys %countydata)
 	}
 	my %newfolder ; 
 	my %foldercontainer ;
-	makeNewFolder($cn,\@newclusters, \%newfolder) ;
+	makeNewFolder($cn,\@newclusters, \%newfolder, $fdrcnt++) ;
 	$foldercontainer{'Folder'} = \%newfolder ;
 	push @newfolders, \%foldercontainer ;
 	$i++ ;
@@ -419,6 +436,11 @@ foreach my $pref (@placemarkhashes) {
 }
 #splice @{$featureref[0]},@{$featureref[0]},0,@newclusters ;
 #splice @$featuregroup, @$featuregroup, @newfolders ;
+if ($noclustering) {
+	#	splice @$featuregroup,0 ;
+	print "No clustering\n" ;
+}
+
 for my $fg (@newfolders) {
 	push @$featuregroup, $fg ;
 }
@@ -538,6 +560,19 @@ sub aoiClustersProximity{
 	return \%clusters,$nc ;
 }
 
+sub aoiNoClustering{
+	my $aoisref = shift ;
+	my %clusters ;
+	my $aoi ;
+	for ($aoi=0; $aoi < @$aoisref ;$aoi++) {
+		my @cbglist ;
+		my $key = "CBG" . $$aoisref[$aoi]{'name'} ;
+		push @cbglist, $$aoisref[$aoi]{'name'} ; 
+		$clusters{$key} = \@cbglist ;
+	}
+	return \%clusters,$aoi ;
+}
+
 sub aoiLoadClusterFile {
 	my $cn = shift ;
 	my $fname = shift ;
@@ -655,7 +690,11 @@ sub printReport{
 		for my $aoi (@$listofAois) {
 			#print "Name $$aoi{'name'}..." ;
 			my $poly = $$aoi{'polygon'} ;
+			my $holes = $$aoi{'holes'} ;
 			$aoiArea{$$aoi{'name'}} = $$poly->area * $milesperlat * $milesperlong ; 
+			foreach my $hole (@$holes) {
+				$aoiArea{$$aoi{'name'}} -= $hole->area * $milesperlat * $milesperlong ;
+			}
 			#printf "area = %.4g..", $$poly->area ;
 			$terrainCode{$$aoi{'name'}} = $$tdata{$$aoi{'name'}}{'terrainType'} ;
 			my $cellDensity = $terrainDensity[$terrainCode{$$aoi{'name'}}] ;
@@ -699,7 +738,7 @@ sub whiteListed {
 	my $entry = shift ;
 	for (my $i = 0; $i<@$wlist; $i++) {
 		if ($entry == $$wlist[$i]) { return 1 ; }
-		#elsif ($entry > $$wlist[$i]) { return 0 ; }
+		elsif ($entry < $$wlist[$i]) { return 0 ; }
 	}
 	return 0;
 }

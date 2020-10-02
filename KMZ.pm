@@ -41,7 +41,7 @@ sub makeNewOutlineStyle{
 	$newst{'id'} = $styleid ;
 	$newst{'PolyStyle'} = {'color' => $clr, 'outline' => 1, 'fill' => 0} ;
 	$newst{'LabelStyle'} = { 'color' => $clr, 'scale' => 0.0000 } ;
-	$newst{'LineStyle'} = { 'color' => $clr, 'width' => 0.1000 } ;
+	$newst{'LineStyle'} = { 'color' => $clr, 'width' => 0 } ;
 	%newst ;
 }
 sub makeNewSolidStyle{
@@ -61,8 +61,8 @@ sub makeNewSolidStyle{
 		$green = ($rgb>>8) & 0xFF ;
 		$blue = ($rgb) & 0xFF ;
 	}
-	my $clr = (0xff<<24) | (($blue) << 16) | (($green) << 8) | ($red)  ;
-	my $bwidth = 0.1000;
+	my $clr = (0x66<<24) | (($blue) << 16) | (($green) << 8) | ($red)  ;
+	my $bwidth = 0;
 	if ($boundary) {
 		$bwidth= 1.0000 ;
 	}
@@ -76,16 +76,17 @@ sub makeNewSolidStyle{
 sub makeNewCluster{
 	my $county = shift ;
 	my $clusterpoly = shift ;
-	my $template = shift ;
 	my $newcn = shift ;
+	my $listofHoles = shift ;
 	my $styleid = shift || sprintf("ClusterStyle%.3d",$newcn) ;
 	my $desc = shift || "Empty string\n" ;
+	my $clustername = shift || sprintf "%s/Cluster_%d", $county, $newcn ;
 	my %newcluster ;
 	my $polygoncoords  = makeNewPolygon($clusterpoly) ;
 	my %placemark ;
 	my %polygon ;
 	my @polygons ;
-	$placemark{'name'} = sprintf "%s/Cluster_%d",$county,$newcn ;
+	$placemark{'name'} = $clustername ;
 	$placemark{'styleUrl'} = "#".$styleid ;
 	$placemark{'description'} = $desc; 
 	$placemark{'id'} = sprintf("ClusterID_%d",$newcn)  ;
@@ -95,6 +96,22 @@ sub makeNewCluster{
 	my %geom;
 	$geom{'Polygon'} = \%polygon ;
 	push @polygons,\%geom ;
+	if (@$listofHoles) {
+		my @holes ;
+		my %holegeom ;
+		my %innerB ;
+		foreach my $hole (@$listofHoles) {
+			my %holedesc ;
+			my %linearRing ;
+			$linearRing{'coordinates'} = makeNewPolygon($hole) ;
+			$holedesc{'LinearRing'} = \%linearRing ;
+			push @holes,\%holedesc ;
+		}
+		$innerB{'innerBoundaryIs'} = \@holes ;
+		$holegeom{'Polygon'} = \%innerB ;
+		push @polygons,\%holegeom ;
+	}
+
 
 	$placemark{'MultiGeometry'}{'AbstractGeometryGroup'} = \@polygons ;
 	$newcluster{'Placemark'} = \%placemark ;
@@ -138,11 +155,11 @@ EODESC
 return $descstring ;
 }
 
-my $fdrcount = 1 ;
 sub makeNewFolder {
 	my $name = shift ;
 	my $listofplacemarks = shift;
 	my $folder = shift; ;
+	my $fdrcount = shift ;
 	$name =~ tr/\s+// ;
 	$$folder{'name'} = $name ;
 	my $num = @$listofplacemarks ;
