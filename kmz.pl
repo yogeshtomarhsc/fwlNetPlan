@@ -112,9 +112,12 @@ foreach my $fg (@$featuregroup) {
 		my $fder = %$fg{$fkey} ;
 		for my $fderkey (keys %$fder) {
 			print "Folder Key $fderkey: Value $$fder{$fderkey}\n" ;
-			#if ($fderkey eq "description") {
-			#	$$fder{$fderkey} = $statename ;
-			#}
+			if ($fderkey eq "name") {
+				$$fder{$fderkey} = $statename ;
+			}
+			if ($fderkey eq "description") {
+				$$fder{$fderkey} = $statename. ":CBGs which are not featured in the whitelist" ;
+			}
 			next unless ($fderkey eq 'AbstractFeatureGroup') ;
 			$featureref[$featurecnt]  = $$fder{'AbstractFeatureGroup'} ;
 			foreach my $fcount (@{$featureref[$featurecnt]})
