@@ -206,6 +206,16 @@ foreach my $pref (@placemarkhashes) {
 		undef $$geomkey{'Polygon'}{'altitudeMode'} ;
 	#{ print "coordinate string: $$geomkey{'Polygon'}{'outerBoundaryIs'}{'LinearRing'}{'coordinates'}\n" ; }
 	}
+	#
+	# Close the pcoords
+	# 
+	{
+		my @first = @{$pcoords[0]} ;
+		my @last = @{$pcoords[$#pcoords]} ;
+		if ($first[0] != $last[0] || $first[1] != $last[1]) {
+			splice @pcoords,@pcoords - 1, 1, \@first;
+		}
+	}
 	my $nxtaoi = chainHull_2D @pcoords ;
 	#	my $nxtaoi = Math::Polygon->new(cvxPolygon::combinePolygonsConvex(\@polygonlist)) ;
 	$nxtaoi->simplify() ;
@@ -400,43 +410,48 @@ foreach my $cn (keys %countydata)
 		my $description = makeNewDescription("Cluster $newcn, county $cn List of CBGs:$cliststring\n") ;
 		my $cstyle ;
 		my $newcluster ;
-		if ($noclustering == 0) {
-			$cstyle = sprintf("ClusterStyle%.3d",$newcn%@colors) ;
-			$newcluster = makeNewCluster($cn,$clusterpoly,$ccn,\@hlist,$cstyle,$description) ;
-		}
-		else {
+		#		if ($noclustering == 0) {
+		#	$cstyle = sprintf("ClusterStyle%.3d",$newcn%@colors) ;
+		#	$newcluster = makeNewCluster($cn,$clusterpoly,$ccn,\@hlist,$cstyle,$description) ;
+		#}
+		#else 
+		{
 			my $cname = sprintf("CBG_%s" , $cliststring) ;
-			my $found = -1 ;
 			$cstyle = sprintf("TerrainStyle%.3d",$newcn%@polycolors) ;
 			# Find the pref and copy it into the cluster data ;
 			my @pmarkname = @{$clusters[$i]->{$newc}} ;
-			print "Moving $pmarkname[0] to newcluster:" ;
+			my @consolidatedPolygonList ;
+			foreach my $pmark (@pmarkname) {
+				print "Moving $pmark to newcluster:" ;
+				my $found = -1 ;
 			#$newcluster = makeNewCluster($cn,$clusterpoly,$ccn,\@hlist,$cstyle,$description, $cname) ;
-			FOUND: for (my $fcount=0; $fcount < @{$featureref[0]}; $fcount++)
-			{
-				my $feature = ${$featureref[0]}[$fcount] ;
-				foreach my $fkey (%$feature) {
-					next unless ($fkey eq 'Placemark') ; 
-					my $placemark = $$feature{$fkey} ;
-					if (${$placemark}{'name'} eq $pmarkname[0]) {
-						my %geometries = %{$$placemark{'MultiGeometry'}} ;
-						if (defined( $geometries{'Polygon'})) {undef $geometries{'Polygon'}{'altitudeMode'} ; }
-
-						$newcluster = makeNewClusterFromPlacemark($cn,\%geometries,$ccn,$cstyle,$description,$cname) ;
-						$found = $fcount ;
-						last FOUND ;
+				FOUND: for (my $fcount=0; $fcount < @{$featureref[0]}; $fcount++)
+				{
+					my $feature = ${$featureref[0]}[$fcount] ;
+					foreach my $fkey (%$feature) {
+						next unless ($fkey eq 'Placemark') ; 
+						my $placemark = $$feature{$fkey} ;
+						if (${$placemark}{'name'} eq $pmark) {
+							my %geometries = %{$$placemark{'MultiGeometry'}} ;
+							splice @consolidatedPolygonList,@consolidatedPolygonList,0,@{$geometries{'AbstractGeometryGroup'}} ;
+							$found = $fcount ;
+							print "found at $found, " ;
+							splice @{$featureref[0]}, $found,1 ;
+							my $nleft =@{$featureref[0]} ;
+							print "$nleft left\n" ;
+							last FOUND;
+						}
 					}
 				}
+				if ($found == -1){
+					die "Couldn't find $pmark!\n" ;
+				}
 			}
-			if ($found != -1) {
-				print "found at $found\n" ;
-				splice @{$featureref[0]}, $found,1 ;
+			foreach my $plgn (@consolidatedPolygonList) {
+				undef $$plgn{'altitudeMode'} ;
 			}
-			if ($found == -1){
-				die "Couldn't find $pmarkname[0]!\n" ;
-			}
+			$newcluster = makeNewClusterFromPlacemark($cn,\@consolidatedPolygonList,$ccn,$cstyle,$description,$cname) ;
 		}
-		#$newclusters[$newcn - $oldnc] = $newcluster ;
 		push @newclusters, $newcluster ;
 		$newcn++ ; $ccn++ ; 
 		#printf("newcn -> $newcn\n") ;
@@ -471,14 +486,18 @@ foreach my $pref (@placemarkhashes) {
 }
 #splice @{$featureref[0]},@{$featureref[0]},0,@newclusters ;
 #splice @$featuregroup, @$featuregroup, @newfolders ;
-if ($noclustering) {
-	#	splice @$featuregroup,0 ;
-	print "No clustering\n" ;
+{
+	my $unassigned = @{$featureref[0]};
+	print "$unassigned unassigned (why?)\n" ;
+	if ($opt_w eq "") {
+		splice @$featuregroup,0,1 ;
+	}
 }
 
-for my $fg (@newfolders) {
-	push @$featuregroup, $fg ;
-}
+unshift @$featuregroup, @newfolders ;
+#for my $fg (@newfolders) {
+#	push @$featuregroup, $fg ;
+#}
 
 
 #open (ODAT, ">/tmp/odat.txt") || die "Can't open odat.txt for writing\n" ;
