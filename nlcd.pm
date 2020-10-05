@@ -7,7 +7,7 @@ $Data::Dumper::Indent = 1;
 use strict;
 
 our @ISA = qw(Exporter);
-our @EXPORT = qw(codePointList sampleHistogram);
+our @EXPORT = qw(codePointList sampleHistogram getTerrainCodeFromHistogram );
 
 sub sampleHistogram {
 	my $poly = shift ;
@@ -141,4 +141,25 @@ sub readNLCDData {
 	my $success = read $dh, $raw, 1 ;
 	die "Couldn't read binary file:$!\n" unless defined $success ;
 	return ord($raw) ;
+}
+sub getTerrainCodeFromHistogram {
+	my $hist = shift ;
+	my $range = shift ;
+	my ($forest,$urban,$wet,$good)  ;
+	my ($total) ;
+	my $ret ;
+	print "getTerrainCode:" ;
+	$forest = $$hist{41} + $$hist{42}+ $$hist{43} ;
+	$urban = $$hist{22} + $$hist{23} + $$hist{24} ;
+	$wet = $$hist{11} + $$hist{12} + $$hist{90} + $$hist{95} ;
+	$total = 0 ;
+	for my $nlcd (keys %$hist) {
+		print "$nlcd=>$$hist{$nlcd} " ;
+		$total += $$hist{$nlcd} ;
+	}
+	print "forest = $forest, urban=$urban, wet = $wet " ;
+	$ret = ($forest + $urban + $wet)/$total ;
+	print "ret=$ret\n" ;
+	if ($ret == 1) { return $range - 1 ; }
+	else  {return int($ret * $range) ; }
 }

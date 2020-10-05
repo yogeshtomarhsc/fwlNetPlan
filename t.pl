@@ -5,6 +5,7 @@ use XML::LibXML;
 use Getopt::Std;
 use Data::Dumper ;
 use Math::Polygon;
+use nlcd ;
 my $milesperlat = 69 ;
 my $milesperlong = 54.6 ; 
 $Data::Dumper::Indent = 1;
@@ -55,8 +56,27 @@ for (my $i = 0; $i < @foldersub; $i++) {
 	}
 }
 
+
 for my $td (keys %towerdata) {
-	print $oh "$td,$towerdata{$td}{'nw'},$towerdata{$td}{'se'},$towerdata{$td}{'ncells'},$towerdata{$td}{'area'},Unknown\n" ;
+#
+# Compute terrain code
+	#
+	next unless defined($towerdata{$td}{'plist'}) ;
+	my @lpgons = @{$towerdata{$td}{'plist'}} ;
+	my $npolygons = @lpgons ;
+	my %histogram;
+	print "$npolygons for $td:" ;
+	foreach my $poly (@lpgons) {
+		my %phist ;
+		my $npts = int($poly->area()*$milesperlat*$milesperlong)+1 ;
+		nlcd::sampleHistogram($poly,$npts*100,\%phist) ;
+		foreach my $tc (keys %phist) {
+			$histogram{$tc} += $phist{$tc} ;
+		}
+	}
+	my $totalrange = 100 ;
+	my $terrainCode = getTerrainCodeFromHistogram(\%histogram,$totalrange); 
+	print $oh "$td,$towerdata{$td}{'nw'},$towerdata{$td}{'se'},$towerdata{$td}{'ncells'},$towerdata{$td}{'area'},$terrainCode\n" ;
 }
 close ($oh) ;
 
@@ -140,9 +160,12 @@ sub xmlToPolygon {
 	print "\n$xmin,$ymin,$xmax,$ymax\n" ;
 	if (!defined($towerdata{$cname})) {
 	       my %tdata ;
+	       my @tpolygons ;
        		$tdata{'area'} = $pgon->area()*$milesperlat*$milesperlong;	       
 		$tdata{'nw'} = sprintf("%.10g,%.10g",$ymax,$xmin) ;
 		$tdata{'se'} = sprintf("%.10g,%.10g",$ymin,$xmax) ;
+		$tdata{'plist'} = \@tpolygons ;
+		push @{$tdata{'plist'}},$pgon ;
 		$towerdata{$cname} = \%tdata ;
 	}
 	else {
@@ -155,6 +178,8 @@ sub xmlToPolygon {
 		if ($oldymin > $ymin || $oldxmax < $xmax) {
 			$towerdata{$cname}{'se'} = sprintf("%.10g,%.10g",$ymin,$xmax) ;
 		}
+		my $tdata = $towerdata{$cname}{'plist'} ;
+		push @$tdata,$pgon ;
 	}
 	return $pgon ;
 }

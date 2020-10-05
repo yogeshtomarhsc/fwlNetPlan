@@ -93,6 +93,7 @@ my $dhash = %$data{'Document'} ;
 #	print "Key $_: Value $$dhash{$_}\n" ;
 #print Dumper $data ;
 #die "Dead!\n" ;
+$$dhash{'name'} = $statename ;
 my $featuregroup = $$dhash{'AbstractFeatureGroup'} ;
 my $stylegroup = $$dhash{'AbstractStyleSelectorGroup'} ;
 
@@ -113,7 +114,7 @@ foreach my $fg (@$featuregroup) {
 		for my $fderkey (keys %$fder) {
 			print "Folder Key $fderkey: Value $$fder{$fderkey}\n" ;
 			if ($fderkey eq "name") {
-				$$fder{$fderkey} = $statename ;
+				$$fder{$fderkey} = "Not in whitelist" ;
 			}
 			if ($fderkey eq "description") {
 				$$fder{$fderkey} = $statename. ":CBGs which are not featured in the whitelist" ;
@@ -235,8 +236,10 @@ foreach my $pref (@placemarkhashes) {
 			my $npts = int($nxtaoi->area()*$milesperlat*$milesperlong)+1 ;
 			print "Calling samplehistogram with $npts points for placemark $$pref{'name'}:" ;
 			nlcd::sampleHistogram($nxtaoi,$npts*100,\%histogram) ;
-			my $totalrange = @polycolors ;
-			$tdata{'terrainType'} = getTerrainCodeFromHistogram(\%histogram,$totalrange); 
+			#my $totalrange = @polycolors ;
+			my $tcode = getTerrainCodeFromHistogram(\%histogram,100); 
+			$tdata{'terrainType'} = $tcode  ;
+			
 			print "$tdata{'terrainType'}\n" ;
 	}
 	$tdata{'area'} = $parea  ;
@@ -416,11 +419,17 @@ foreach my $cn (keys %countydata)
 		#}
 		#else 
 		{
-			my $cname = sprintf("CBG_%s" , $cliststring) ;
+			my $cname ;
 			$cstyle = sprintf("TerrainStyle%.3d",$newcn%@polycolors) ;
 			# Find the pref and copy it into the cluster data ;
 			my @pmarkname = @{$clusters[$i]->{$newc}} ;
 			my @consolidatedPolygonList ;
+			if ($noclustering) {
+				$cname = sprintf("CBG_%s" , $cliststring) ;
+			}
+			else {
+				$cname = sprintf("%s/%s", $cn, $newc) ;
+			}
 			foreach my $pmark (@pmarkname) {
 				print "Moving $pmark to newcluster:" ;
 				my $found = -1 ;
@@ -472,13 +481,14 @@ foreach my $cn (keys %countydata)
 foreach my $pref (@placemarkhashes) {
 	#my $styleid = findInClusters($$pref{'name'},$clusters) ;
 	my $styleid ;
-	if ($opt_w && !whiteListed(\@whitelist,$$pref{'name'})) {
-		$styleid = $greyid ;
-	}
-	else {
-		#$styleid = $terrainData{$$pref{'name'}}{'terrainType'}%$nc;
-		$styleid = %styleIdHash{$$pref{'name'}}%$nc;
-	}
+	$styleid = $greyid;
+	#if ($opt_w && !whiteListed(\@whitelist,$$pref{'name'})) {
+	#	$styleid = $greyid ;
+	#}
+	#else {
+	#	#$styleid = $terrainData{$$pref{'name'}}{'terrainType'}%$nc;
+	#	$styleid = %styleIdHash{$$pref{'name'}}%$nc;
+	#}
 	next unless ($styleid != -1) ;
 
 	$$pref{'styleUrl'} = '#TerrainStyle' . sprintf("%.3d",$styleid) ;
@@ -489,9 +499,9 @@ foreach my $pref (@placemarkhashes) {
 {
 	my $unassigned = @{$featureref[0]};
 	print "$unassigned unassigned (why?)\n" ;
-	if ($opt_w eq "") {
-		splice @$featuregroup,0,1 ;
-	}
+	#if ($opt_w eq "") {
+	#	splice @$featuregroup,0,1 ;
+	#}
 }
 
 unshift @$featuregroup, @newfolders ;
@@ -722,6 +732,9 @@ sub getCounty{
 }
 	
 
+# Formula for tower to cell density
+# c = 14 + 0.23*tc ;
+# chigher = 12.3 + 0.18*tc ;
 sub printReport{
 	my $cdata = shift ;
 	my $ofile = shift ;
@@ -730,16 +743,18 @@ sub printReport{
 	#	print Dumper $tdata ;
 	#return 0;
 	open (FREP,">", "$ofile") || die "Can't open $ofile for writing\n" ; 
-	print FREP "County,Cluster id,Area (sq.miles), CBG ARea, %Coverage, Weighted Terrain Code,Number of Towers,List of CBGs\n" ;
+	print FREP "County,Cluster id,Area (sq.miles), CBG ARea, Holes, %Coverage, Weighted Terrain Code(0-99),Number of Towers, Number of Towers (64QAM and better),List of CBGs\n" ;
 	print "Processing counties..." ;
-	my ($totalArea,$totalTowers,$totalCbgArea) ;
-	$totalArea = $totalTowers = $totalCbgArea = 0 ;
+	my ($totalArea,$totalTowers,$totalTowers2,$totalCbgArea) ;
+	$totalArea = $totalTowers = $totalTowers2 = $totalCbgArea = 0 ;
 	for my $cname (sort keys %$cdata) {
 		my $clist = $$cdata{$cname}{'clusters'} ;
 		my $clusterlist = $$cdata{$cname}{'clusterMap'} ;
 		my $listofAois = $$cdata{$cname}{'aois'} ;
 		my %aoiArea ;
+		my %aoiHoleArea ;
 		my %towers;
+		my %towers2;
 		my %terrainCode ;
 		for my $aoi (@$listofAois) {
 			#print "Name $$aoi{'name'}..." ;
@@ -747,43 +762,57 @@ sub printReport{
 			my $holes = $$aoi{'holes'} ;
 			$aoiArea{$$aoi{'name'}} = $$poly->area * $milesperlat * $milesperlong ; 
 			foreach my $hole (@$holes) {
-				$aoiArea{$$aoi{'name'}} -= $hole->area * $milesperlat * $milesperlong ;
+				$aoiHoleArea{$$aoi{'name'}} += $hole->area * $milesperlat * $milesperlong ;
 			}
 			#printf "area = %.4g..", $$poly->area ;
 			$terrainCode{$$aoi{'name'}} = $$tdata{$$aoi{'name'}}{'terrainType'} ;
-			my $cellDensity = $terrainDensity[$terrainCode{$$aoi{'name'}}] ;
-			if ($cellDensity == 0) { die "terrain=$terrainCode{$$aoi{'name'}} cname = $cname aoi = $$aoi{'name'} density=$cellDensity\n" ; }
-			my $aoiTower = int($aoiArea{$$aoi{'name'}}/$cellDensity) ;
-			if ($aoiTower < 1) { $aoiTower = 1;}
-			$towers{$$aoi{'name'}} += $aoiTower ;
+			{
+				my $tc = $terrainDensity[$terrainCode{$$aoi{'name'}}] ;
+				my $cellDensity = 14 + 0.23*$tc ;
+				my $cellDensity2 = 12.3 + 0.18*$tc ;
+				if ($cellDensity == 0 || $cellDensity2 == 0) { die "terrain=$terrainCode{$$aoi{'name'}} cname = $cname aoi = $$aoi{'name'} density=$cellDensity\n" ; }
+				my $aoiTower = int(($aoiArea{$$aoi{'name'}} - $aoiHoleArea{$$aoi{'name'}})/$cellDensity) ;
+				if ($aoiTower < 1) { $aoiTower = 1;}
+				$towers{$$aoi{'name'}} += $aoiTower ;
+
+				$aoiTower = int(($aoiArea{$$aoi{'name'}} - $aoiHoleArea{$$aoi{'name'}})/$cellDensity2) ;
+				if ($aoiTower < 1) { $aoiTower = 1;}
+				$towers2{$$aoi{'name'}} += $aoiTower ;
+			}
 		}
 
 		for my $cid (@$clist) {
 			my $clusterarea = $milesperlat*$milesperlong*$$cid{'poly'}->area() ;
 			my $ostring = "" ;
 			my $cbgClusterArea = 0 ; 
+			my $cbgClusterHoleArea = 0 ; 
 			my $twrs = 0;
+			my $twrs2 = 0;
 			my $weightedTerrainCode= 0 ;
 			my $cbglist = $$clusterlist{$$cid{'name'}} ;
 			for my $cbg (@$cbglist) {
 				$ostring .= "$cbg:" ;
-				$cbgClusterArea += $aoiArea{$cbg} ;
-				$twrs += $towers{$cbg} ;
+				$cbgClusterArea += $aoiArea{$cbg} ; 
+				$cbgClusterHoleArea += $aoiHoleArea{$cbg} ;
+				$twrs += $towers{$cbg};
+				$twrs2 += $towers2{$cbg};
 				$weightedTerrainCode += $terrainCode{$cbg}*$aoiArea{$cbg} ;
 			}
 			$weightedTerrainCode = int($weightedTerrainCode/$cbgClusterArea) ;
-			my $pc = int(100.0*($cbgClusterArea/$clusterarea)) ; 
-			printf FREP "%.10s,%10s,%.6g,%.4g,%d%%,%d,%d,",
-				$cname,$$cid{'name'},$clusterarea,$cbgClusterArea,$pc,
-				$weightedTerrainCode,$twrs;
+			my $pc = int(100.0*($cbgClusterArea - $cbgClusterHoleArea)/$clusterarea) ; 
+			printf FREP "%.10s,%10s,%.6g,%.4g,%.4g,%d%%,%d,%d,%d,",
+				$cname,$$cid{'name'},
+				$clusterarea,$cbgClusterArea,$cbgClusterHoleArea,
+				$pc,$weightedTerrainCode,$twrs,$twrs2;
 			print FREP "$ostring\n" ;
 			$totalArea += $clusterarea ;
 			$totalCbgArea += $cbgClusterArea ;
 			$totalTowers += $twrs ;
+			$totalTowers2 += $twrs2 ;
 		}
 	}
 	print "\n";
-	print FREP "Towers = $totalTowers\nArea = $totalArea\nCBG Area = $totalCbgArea\n" ;
+	print FREP "Towers(all coverage) = $totalTowers, Towers(64QAM and better)=$totalTowers2,Area = $totalArea,CBG Area = $totalCbgArea\n" ;
 	close(FREP) ;
 }
 
@@ -797,24 +826,3 @@ sub whiteListed {
 	return 0;
 }
 
-sub getTerrainCodeFromHistogram {
-	my $hist = shift ;
-	my $range = shift ;
-	my ($forest,$urban,$wet,$good)  ;
-	my ($total) ;
-	my $ret ;
-	print "getTerrainCode:" ;
-	$forest = $$hist{41} + $$hist{42}+ $$hist{43} ;
-	$urban = $$hist{22} + $$hist{23} + $$hist{24} ;
-	$wet = $$hist{11} + $$hist{12} + $$hist{90} + $$hist{95} ;
-	$total = 0 ;
-	for my $nlcd (keys %$hist) {
-		print "$nlcd=>$$hist{$nlcd} " ;
-		$total += $$hist{$nlcd} ;
-	}
-	print "forest = $forest, urban=$urban, wet = $wet " ;
-	$ret = ($forest + $urban + $wet)/$total ;
-	print "ret=$ret\n" ;
-	if ($ret == 1) { return $range - 1 ; }
-	else  {return int($ret * $range) ; }
-}

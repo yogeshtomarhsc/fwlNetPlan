@@ -77,19 +77,21 @@ sub makeNewSolidStyle{
 
 sub makeNewClusterFromPlacemark{
 	my $county = shift ;
-	my $geometries = shift ;
+	my $cplList = shift ;
 	my $newcn = shift ;
 	my $styleid = shift || sprintf("ClusterStyle%.3d",$newcn) ;
 	my $desc = shift || "Empty string\n" ;
 	my $clustername = shift || sprintf "%s/Cluster_%d", $county, $newcn ;
 	my %placemark ;
+	my %pgroup ;
 	my %newcluster ;
 
 	$placemark{'name'} = $clustername ;
 	$placemark{'styleUrl'} = "#".$styleid ;
 	$placemark{'description'} = $desc; 
 	$placemark{'id'} = sprintf("ClusterID_%d",$newcn)  ;
-	$placemark{'MultiGeometry'} =$geometries ;
+	$pgroup{'AbstractGeometryGroup'} = $cplList ;
+	$placemark{'MultiGeometry'} = \%pgroup;
 	$newcluster{'Placemark'} = \%placemark ;
 	return \%newcluster ;
 }
