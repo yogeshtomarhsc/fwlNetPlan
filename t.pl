@@ -137,6 +137,7 @@ sub xmlToPolygon {
 						my (@xy,$z);
 						($xy[0],$xy[1],$z) = split(/,/,$crd); 
 						if (defined($xy[0]) && defined($xy[1])) {
+							if ($xy[0] < -119.0 && $xy[0] > -120.5) { next ; }
 							push @parray,\@xy ;
 						}
 					}
