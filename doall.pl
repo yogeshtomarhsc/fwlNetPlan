@@ -53,7 +53,7 @@ while (my $fname = readdir(DIR)) {
 	if ($estring eq "") {
 		$estring = "./kmz.pl -f ". $opt_d . $fname . " -k " . $ofile . " -r " . $rfile . " -K $opt_K";
 	}
-	$estring .= " -w " . $wfile . " |";
+	$estring .= " -w " . $wfile . " 2>&1 |";
 	print "$estring\n" ;
 	#	system($estring) ;
 		open (SH, "$estring") || die "Can't open $estring\n" ;

@@ -733,8 +733,8 @@ sub getCounty{
 	
 
 # Formula for tower to cell density
-# c = 14 + 0.23*tc ;
-# chigher = 12.3 + 0.18*tc ;
+# c = 68.24 - 0.166*tc ;
+# chigher = 58.94 - 0.194*tc ;
 sub printReport{
 	my $cdata = shift ;
 	my $ofile = shift ;
@@ -768,8 +768,8 @@ sub printReport{
 			$terrainCode{$$aoi{'name'}} = $$tdata{$$aoi{'name'}}{'terrainType'} ;
 			{
 				my $tc = $terrainDensity[$terrainCode{$$aoi{'name'}}] ;
-				my $cellDensity = 14 + 0.23*$tc ;
-				my $cellDensity2 = 12.3 + 0.18*$tc ;
+				my $cellDensity = 68.24  - 0.166*$tc ;
+				my $cellDensity2 = 58.94 - 0.194*$tc ;
 				if ($cellDensity == 0 || $cellDensity2 == 0) { die "terrain=$terrainCode{$$aoi{'name'}} cname = $cname aoi = $$aoi{'name'} density=$cellDensity\n" ; }
 				my $aoiTower = int(($aoiArea{$$aoi{'name'}} - $aoiHoleArea{$$aoi{'name'}})/$cellDensity) ;
 				if ($aoiTower < 1) { $aoiTower = 1;}
