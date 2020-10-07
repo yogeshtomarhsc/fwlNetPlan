@@ -10,13 +10,14 @@ our $opt_d = "." ;
 our $opt_D = "processed/" ;
 our $opt_w = "" ;
 our $opt_K = "proximity3.5" ;
-our $opt_C = "" ;
-getopt('d:D:hw:K:C:') ;
+our $opt_C = "";
+our $opt_l = "-" ;
+my %cons ;
+$Getopt::Std::STD_HELP_VERSION = 1 ;
+getopts('d:D:hw:K:C:l:') ;
 if ($opt_h) {
-	die <<EOH
-	Usage: doall.pl -d <directory to read kmz files from> -D <directory to write processed files to> -K <default clustering> -C <directory of cluster files> -w <whitelist file>
-EOH
-;
+print "Printing usage\n" ; 
+	HELP_MESSAGE() ;
 exit(1) ;
 }
 my @clusterfiles ;
@@ -60,6 +61,7 @@ while (my $fname = readdir(DIR)) {
 		while (<SH>) {
 			chomp ;
 			if (/Couldn't find/) { print "$_\n" ; }
+			/^Consolidated:(.*)$/ && do {$cons{$state} = $1 ; } ;
 	#	/State.*xmin=([-0-9.]+).*xmax=([-0-9.]+).*ymin=([-0-9.]+).*ymax=([-0-9.]+)/ &&
 	#		do {
 	#			if ($opt_b) { print FH "$state,$1,$2,$3,$4\n" ;  }
@@ -69,3 +71,21 @@ while (my $fname = readdir(DIR)) {
 	close(SH) ;
 }
 close (FH) ;
+
+my $lh ;
+if ($opt_l eq "-") {
+	$lh = *STDOUT ;
+}
+else {
+	open ($lh, '>', "$opt_l") || die "Can't open $opt_l for writing:$!\n" ; 
+}
+foreach my $st (sort keys %cons) {
+	print $lh "$st: $cons{$st}\n" ;
+}
+
+sub HELP_MESSAGE {
+print STDERR <<EOH
+Usage: doall.pl -d <directory to read kmz files from> -D <directory to write processed files to> -K <default clustering> -C <directory of cluster files> -w <whitelist file> -l <logfile>
+EOH
+;
+}

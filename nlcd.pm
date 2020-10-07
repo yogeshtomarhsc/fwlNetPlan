@@ -145,21 +145,23 @@ sub readNLCDData {
 sub getTerrainCodeFromHistogram {
 	my $hist = shift ;
 	my $range = shift ;
-	my ($forest,$urban,$wet,$good)  ;
+	my ($forest,$urban,$wet,$good,$unk)  ;
 	my ($total) ;
 	my $ret ;
 	print "getTerrainCode:" ;
 	$forest = $$hist{41} + $$hist{42}+ $$hist{43} ;
 	$urban = $$hist{22} + $$hist{23} + $$hist{24} ;
 	$wet = $$hist{11} + $$hist{12} + $$hist{90} + $$hist{95} ;
+	if (defined($$hist{9999})) { $unk = $$hist{9999} ; }
+		else { $unk = 0; }
 	$total = 0 ;
 	for my $nlcd (keys %$hist) {
 		print "$nlcd=>$$hist{$nlcd} " ;
 		$total += $$hist{$nlcd} ;
 	}
 	print "forest = $forest, urban=$urban, wet = $wet " ;
-	$ret = ($forest + $urban + $wet)/$total ;
-	print "ret=$ret\n" ;
+	$ret = ($forest + $urban + $wet + ($unk/2))/$total ;
+	print "ret=$ret unknown=$unk\n" ;
 	if ($ret == 1) { return $range - 1 ; }
-	else  {return int($ret * $range) ; }
+	return $ret*$range ;
 }

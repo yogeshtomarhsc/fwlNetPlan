@@ -734,7 +734,7 @@ sub getCounty{
 
 # Formula for tower to cell density
 # c = 68.24 - 0.166*tc ;
-# chigher = 58.94 - 0.194*tc ;
+# chigher = 66.12 - 0.279*tc ;
 sub printReport{
 	my $cdata = shift ;
 	my $ofile = shift ;
@@ -769,7 +769,8 @@ sub printReport{
 			{
 				my $tc = $terrainDensity[$terrainCode{$$aoi{'name'}}] ;
 				my $cellDensity = 68.24  - 0.166*$tc ;
-				my $cellDensity2 = 58.94 - 0.194*$tc ;
+				my $cellDensity2 = 66.12 - 0.279*$tc ;
+				if ($cellDensity2 > $cellDensity) { $cellDensity2 = $cellDensity ; }
 				if ($cellDensity == 0 || $cellDensity2 == 0) { die "terrain=$terrainCode{$$aoi{'name'}} cname = $cname aoi = $$aoi{'name'} density=$cellDensity\n" ; }
 				my $aoiTower = int(($aoiArea{$$aoi{'name'}} - $aoiHoleArea{$$aoi{'name'}})/$cellDensity) ;
 				if ($aoiTower < 1) { $aoiTower = 1;}
@@ -812,7 +813,8 @@ sub printReport{
 		}
 	}
 	print "\n";
-	print FREP "Towers(all coverage) = $totalTowers, Towers(64QAM and better)=$totalTowers2,Area = $totalArea,CBG Area = $totalCbgArea\n" ;
+	print FREP "Consolidated: Towers(all coverage) = $totalTowers, Towers(64QAM and better)=$totalTowers2,Area = $totalArea,CBG Area = $totalCbgArea\n" ;
+	print "Consolidated: Towers(all coverage) = $totalTowers, Towers(64QAM and better)=$totalTowers2,Area = $totalArea,CBG Area = $totalCbgArea\n" ;
 	close(FREP) ;
 }
 

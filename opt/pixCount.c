@@ -196,6 +196,7 @@ int processRanges(char *rfile, range_t *r)
 	if ((rf = fopen(rfile,"r")) == NULL) {
 		fprintf(stderr,"Couldn't open %s\n",rfile) ;
 		perror("File read error\n") ;
+		exit(4) ;
 	}
 	while (fgets(finf,1023,rf) != 0) {
 		int red,green,blue ;
